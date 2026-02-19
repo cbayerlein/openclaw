@@ -362,6 +362,18 @@ export const FIELD_HELP: Record<string, string> = {
     "Additional Telegram bot menu commands (merged with native; conflicts ignored).",
   "messages.suppressToolErrors":
     "When true, suppress ⚠️ tool-error warnings from being shown to the user. The agent already sees errors in context and can retry. Default: false.",
+  "messages.toolWarnings.enabled":
+    "Feature flag for structured warning routing (warning events + dedicated routing). Default: false.",
+  "messages.toolWarnings.target":
+    "Provider used for dedicated tool-warning routing (e.g. telegram). Falls back to agents.defaults.heartbeat.target when unset.",
+  "messages.toolWarnings.to":
+    "Destination id for dedicated tool-warning routing. Falls back to agents.defaults.heartbeat.to when unset.",
+  "messages.toolWarnings.execOnly":
+    "Route only exec/bash tool errors to warning destination (default: true).",
+  "messages.toolWarnings.fallbackToUserChat":
+    "If warning routing fails or no target is configured, also send warning in user chat (default: true).",
+  "messages.toolWarnings.dedupeWindowMs":
+    "Fingerprint dedupe window for warning delivery in milliseconds (default: 600000 / 10 minutes).",
   "messages.ackReaction": "Emoji reaction used to acknowledge inbound messages (empty disables).",
   "messages.ackReactionScope":
     'When to send ack reactions ("group-mentions", "group-all", "direct", "all").',

@@ -26,6 +26,7 @@ import { isRoutableChannel, routeReply } from "./route-reply.js";
 import { incrementRunCompactionCount, persistRunSessionUsage } from "./session-run-accounting.js";
 import { createTypingSignaler } from "./typing-mode.js";
 import type { TypingController } from "./typing.js";
+import { processWarningEvents } from "./warning-routing.js";
 
 export function createFollowupRunner(params: {
   opts?: GetReplyOptions;
@@ -216,7 +217,18 @@ export function createFollowupRunner(params: {
         });
       }
 
-      const payloadArray = runResult.payloads ?? [];
+      let payloadArray = runResult.payloads ?? [];
+      const warningEvents = runResult.warnings ?? [];
+      if (warningEvents.length > 0) {
+        const warningPayloads = await processWarningEvents({
+          warnings: warningEvents,
+          cfg: queued.run.config,
+          sessionKey: queued.run.sessionKey,
+        });
+        if (warningPayloads.length > 0) {
+          payloadArray = [...payloadArray, ...warningPayloads];
+        }
+      }
       if (payloadArray.length === 0) {
         return;
       }

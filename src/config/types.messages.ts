@@ -49,6 +49,24 @@ export type AudioConfig = {
   };
 };
 
+export type ToolWarningsConfig = {
+  /** Feature flag for structured warning routing pipeline. Default: false. */
+  enabled?: boolean;
+  /** Dedicated warning channel (e.g. telegram). */
+  target?: string;
+  /** Destination id for the warning channel (chat/group/user id). */
+  to?: string;
+  /** Route only exec/bash tool errors to warning channel (default: true). */
+  execOnly?: boolean;
+  /**
+   * Fallback to user chat when warning route is missing/failed.
+   * Default: true.
+   */
+  fallbackToUserChat?: boolean;
+  /** Fingerprint dedupe window in ms (default: 600000 = 10 minutes). */
+  dedupeWindowMs?: number;
+};
+
 export type MessagesConfig = {
   /** @deprecated Use `whatsapp.messagePrefix` (WhatsApp-only inbound prefix). */
   messagePrefix?: string;
@@ -84,6 +102,8 @@ export type MessagesConfig = {
   removeAckAfterReply?: boolean;
   /** When true, suppress ⚠️ tool-error warnings from being shown to the user. Default: false. */
   suppressToolErrors?: boolean;
+  /** Dedicated routing + dedupe policy for structured tool warning events. */
+  toolWarnings?: ToolWarningsConfig;
   /** Text-to-speech settings for outbound replies. */
   tts?: TtsConfig;
 };

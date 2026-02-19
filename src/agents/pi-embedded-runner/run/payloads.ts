@@ -1,9 +1,12 @@
 import type { AssistantMessage } from "@mariozechner/pi-ai";
-import { parseReplyDirectives } from "../../../auto-reply/reply/reply-directives.js";
+import crypto from "node:crypto";
 import type { ReasoningLevel, VerboseLevel } from "../../../auto-reply/thinking.js";
+import type { OpenClawConfig } from "../../../config/config.js";
+import type { ToolResultFormat } from "../../pi-embedded-subscribe.js";
+import type { EmbeddedPiWarningEvent } from "../types.js";
+import { parseReplyDirectives } from "../../../auto-reply/reply/reply-directives.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../../../auto-reply/tokens.js";
 import { formatToolAggregate } from "../../../auto-reply/tool-meta.js";
-import type { OpenClawConfig } from "../../../config/config.js";
 import {
   BILLING_ERROR_USER_MESSAGE,
   formatAssistantErrorText,
@@ -12,7 +15,6 @@ import {
   isRawApiErrorPayload,
   normalizeTextForComparison,
 } from "../../pi-embedded-helpers.js";
-import type { ToolResultFormat } from "../../pi-embedded-subscribe.js";
 import {
   extractAssistantText,
   extractAssistantThinking,
@@ -44,30 +46,45 @@ function isRecoverableToolError(error: string | undefined): boolean {
   return RECOVERABLE_TOOL_ERROR_KEYWORDS.some((keyword) => errorLower.includes(keyword));
 }
 
-function shouldShowToolErrorWarning(params: {
+/**
+ * Decide whether a tool error should become a structured warning event.
+ *
+ * Policy:
+ * - mutating tools: always emit (safety visibility)
+ * - exec/bash: always emit (operational visibility)
+ * - otherwise: respect suppressToolErrors and avoid noisy recoverable errors
+ */
+function shouldEmitToolWarningEvent(params: {
   lastToolError: LastToolError;
   hasUserFacingReply: boolean;
   suppressToolErrors: boolean;
-  suppressToolErrorWarnings?: boolean;
-  verboseLevel?: VerboseLevel;
-}): boolean {
-  if (params.suppressToolErrorWarnings) {
-    return false;
-  }
-  const normalizedToolName = params.lastToolError.toolName.trim().toLowerCase();
-  const verboseEnabled = params.verboseLevel === "on" || params.verboseLevel === "full";
-  if ((normalizedToolName === "exec" || normalizedToolName === "bash") && !verboseEnabled) {
-    return false;
-  }
-  const isMutatingToolError =
+}): { shouldEmit: boolean; isMutating: boolean } {
+  const normalizedTool = params.lastToolError.toolName.trim().toLowerCase();
+  const isExecLike = normalizedTool === "exec" || normalizedTool === "bash";
+  const isMutating =
     params.lastToolError.mutatingAction ?? isLikelyMutatingToolName(params.lastToolError.toolName);
-  if (isMutatingToolError) {
-    return true;
+  if (isMutating || isExecLike) {
+    return { shouldEmit: true, isMutating };
   }
   if (params.suppressToolErrors) {
-    return false;
+    return { shouldEmit: false, isMutating };
   }
-  return !params.hasUserFacingReply && !isRecoverableToolError(params.lastToolError.error);
+  return {
+    shouldEmit: !params.hasUserFacingReply && !isRecoverableToolError(params.lastToolError.error),
+    isMutating,
+  };
+}
+
+/**
+ * Build a stable warning fingerprint used by downstream dedupe/rate-limit logic.
+ * Prefer actionFingerprint when present (more semantic stability), fallback to
+ * tool + summary + error tuple.
+ */
+function buildWarningFingerprint(lastToolError: LastToolError): string {
+  const source =
+    lastToolError.actionFingerprint ??
+    `${lastToolError.toolName}|${lastToolError.meta ?? ""}|${lastToolError.error ?? ""}`;
+  return crypto.createHash("sha1").update(source).digest("hex");
 }
 
 export function buildEmbeddedRunPayloads(params: {
@@ -84,16 +101,19 @@ export function buildEmbeddedRunPayloads(params: {
   toolResultFormat?: ToolResultFormat;
   suppressToolErrorWarnings?: boolean;
   inlineToolResultsAllowed: boolean;
-}): Array<{
-  text?: string;
-  mediaUrl?: string;
-  mediaUrls?: string[];
-  replyToId?: string;
-  isError?: boolean;
-  audioAsVoice?: boolean;
-  replyToTag?: boolean;
-  replyToCurrent?: boolean;
-}> {
+}): {
+  payloads: Array<{
+    text?: string;
+    mediaUrl?: string;
+    mediaUrls?: string[];
+    replyToId?: string;
+    isError?: boolean;
+    audioAsVoice?: boolean;
+    replyToTag?: boolean;
+    replyToCurrent?: boolean;
+  }>;
+  warnings: EmbeddedPiWarningEvent[];
+} {
   const replyItems: Array<{
     text: string;
     media?: string[];
@@ -103,6 +123,7 @@ export function buildEmbeddedRunPayloads(params: {
     replyToTag?: boolean;
     replyToCurrent?: boolean;
   }> = [];
+  const warningItems: EmbeddedPiWarningEvent[] = [];
 
   const useMarkdown = params.toolResultFormat === "markdown";
   const lastAssistantErrored = params.lastAssistant?.stopReason === "error";
@@ -231,7 +252,6 @@ export function buildEmbeddedRunPayloads(params: {
         : []
   ).filter((text) => !shouldSuppressRawErrorText(text));
 
-  let hasUserFacingAssistantReply = false;
   for (const text of answerTexts) {
     const {
       text: cleanedText,
@@ -252,21 +272,26 @@ export function buildEmbeddedRunPayloads(params: {
       replyToTag,
       replyToCurrent,
     });
-    hasUserFacingAssistantReply = true;
   }
 
   if (params.lastToolError) {
-    const shouldShowToolError = shouldShowToolErrorWarning({
+    const lastAssistantHasToolCalls =
+      Array.isArray(params.lastAssistant?.content) &&
+      params.lastAssistant?.content.some((block) =>
+        block && typeof block === "object"
+          ? (block as { type?: unknown }).type === "toolCall"
+          : false,
+      );
+    const lastAssistantWasToolUse = params.lastAssistant?.stopReason === "toolUse";
+    const hasUserFacingReply =
+      replyItems.length > 0 && !lastAssistantHasToolCalls && !lastAssistantWasToolUse;
+    const warningState = shouldEmitToolWarningEvent({
       lastToolError: params.lastToolError,
-      hasUserFacingReply: hasUserFacingAssistantReply,
+      hasUserFacingReply,
       suppressToolErrors: Boolean(params.config?.messages?.suppressToolErrors),
-      suppressToolErrorWarnings: params.suppressToolErrorWarnings,
-      verboseLevel: params.verboseLevel,
     });
 
-    // Always surface mutating tool failures so we do not silently confirm actions that did not happen.
-    // Otherwise, keep the previous behavior and only surface non-recoverable failures when no reply exists.
-    if (shouldShowToolError) {
+    if (warningState.shouldEmit) {
       const toolSummary = formatToolAggregate(
         params.lastToolError.toolName,
         params.lastToolError.meta ? [params.lastToolError.meta] : undefined,
@@ -285,16 +310,22 @@ export function buildEmbeddedRunPayloads(params: {
           })
         : false;
       if (!duplicateWarning) {
-        replyItems.push({
+        warningItems.push({
+          kind: "tool_error",
           text: warningText,
-          isError: true,
+          toolName: params.lastToolError.toolName,
+          toolSummary,
+          errorText: params.lastToolError.error,
+          isMutating: warningState.isMutating,
+          fingerprint: buildWarningFingerprint(params.lastToolError),
+          ts: Date.now(),
         });
       }
     }
   }
 
   const hasAudioAsVoiceTag = replyItems.some((item) => item.audioAsVoice);
-  return replyItems
+  const payloads = replyItems
     .map((item) => ({
       text: item.text?.trim() ? item.text.trim() : undefined,
       mediaUrls: item.media?.length ? item.media : undefined,
@@ -314,4 +345,6 @@ export function buildEmbeddedRunPayloads(params: {
       }
       return true;
     });
+
+  return { payloads, warnings: warningItems };
 }

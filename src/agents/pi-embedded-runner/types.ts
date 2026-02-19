@@ -49,6 +49,29 @@ export type EmbeddedPiRunMeta = {
   }>;
 };
 
+/**
+ * Structured warning emitted by embedded runner for tool failures.
+ * Routed separately from regular reply payloads.
+ */
+export type EmbeddedPiWarningEvent = {
+  /** Event category (reserved for future extension). */
+  kind: "tool_error";
+  /** Fully formatted user-facing warning text. */
+  text: string;
+  /** Normalized tool name (e.g. exec, bash, edit). */
+  toolName: string;
+  /** Compact tool summary used in warning text/fingerprint source. */
+  toolSummary: string;
+  /** Optional raw error text extracted from tool result. */
+  errorText?: string;
+  /** True when tool action is considered mutating/high-impact. */
+  isMutating: boolean;
+  /** Stable hash for dedupe/rate limiting across runs. */
+  fingerprint: string;
+  /** Unix epoch milliseconds when event was produced. */
+  ts: number;
+};
+
 export type EmbeddedPiRunResult = {
   payloads?: Array<{
     text?: string;
@@ -57,6 +80,7 @@ export type EmbeddedPiRunResult = {
     replyToId?: string;
     isError?: boolean;
   }>;
+  warnings?: EmbeddedPiWarningEvent[];
   meta: EmbeddedPiRunMeta;
   // True if a messaging tool (telegram, whatsapp, discord, slack, sessions_send)
   // successfully sent a message. Used to suppress agent's confirmation text.

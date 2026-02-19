@@ -48,6 +48,7 @@ import { createReplyToModeFilterForChannel, resolveReplyToMode } from "./reply-t
 import { incrementRunCompactionCount, persistRunSessionUsage } from "./session-run-accounting.js";
 import { createTypingSignaler } from "./typing-mode.js";
 import type { TypingController } from "./typing.js";
+import { processWarningEvents } from "./warning-routing.js";
 
 const BLOCK_REPLY_SEND_TIMEOUT_MS = 15_000;
 const UNSCHEDULED_REMINDER_NOTE =
@@ -399,7 +400,19 @@ export async function runReplyAgent(params: {
       }
     }
 
-    const payloadArray = runResult.payloads ?? [];
+    let payloadArray = runResult.payloads ?? [];
+    const warningEvents = runResult.warnings ?? [];
+
+    if (warningEvents.length > 0) {
+      const warningPayloads = await processWarningEvents({
+        warnings: warningEvents,
+        cfg,
+        sessionKey,
+      });
+      if (warningPayloads.length > 0) {
+        payloadArray = [...payloadArray, ...warningPayloads];
+      }
+    }
 
     if (blockReplyPipeline) {
       await blockReplyPipeline.flush({ force: true });
