@@ -1,12 +1,7 @@
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import { describe, expect, it } from "vitest";
 import { formatBillingErrorMessage } from "../../pi-embedded-helpers.js";
-import { makeAssistantMessageFixture } from "../../test-helpers/assistant-message-fixtures.js";
-import {
-  buildPayloads,
-  expectSinglePayloadText,
-  expectSingleToolErrorPayload,
-} from "./payloads.test-helpers.js";
+import { buildEmbeddedRunPayloads } from "./payloads.js";
 
 describe("buildEmbeddedRunPayloads", () => {
   const OVERLOADED_FALLBACK_TEXT =
@@ -22,18 +17,49 @@ describe("buildEmbeddedRunPayloads", () => {
   },
   "request_id": "req_011CX7DwS7tSvggaNHmefwWg"
 }`;
-  const makeAssistant = (overrides: Partial<AssistantMessage>): AssistantMessage =>
-    makeAssistantMessageFixture({
-      errorMessage: errorJson,
-      content: [{ type: "text", text: errorJson }],
+  const makeAssistant = (overrides: Partial<AssistantMessage>): AssistantMessage => ({
+    role: "assistant",
+    api: "openai-responses",
+    provider: "openai",
+    model: "test-model",
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 0,
+      },
+    },
+    timestamp: 0,
+    stopReason: "error",
+    errorMessage: errorJson,
+    content: [{ type: "text", text: errorJson }],
+    ...overrides,
+  });
+
+  type BuildPayloadParams = Parameters<typeof buildEmbeddedRunPayloads>[0];
+  const buildPayloadResult = (overrides: Partial<BuildPayloadParams> = {}) =>
+    buildEmbeddedRunPayloads({
+      assistantTexts: [],
+      toolMetas: [],
+      lastAssistant: undefined,
+      sessionKey: "session:telegram",
+      inlineToolResultsAllowed: false,
+      verboseLevel: "off",
+      reasoningLevel: "off",
+      toolResultFormat: "plain",
       ...overrides,
     });
-  const makeStoppedAssistant = () =>
-    makeAssistant({
-      stopReason: "stop",
-      errorMessage: undefined,
-      content: [],
-    });
+  const buildPayloads = (overrides: Partial<BuildPayloadParams> = {}) =>
+    buildPayloadResult(overrides).payloads;
+  const buildWarnings = (overrides: Partial<BuildPayloadParams> = {}) =>
+    buildPayloadResult(overrides).warnings;
 
   const expectOverloadedFallback = (payloads: ReturnType<typeof buildPayloads>) => {
     expect(payloads).toHaveLength(1);
@@ -85,19 +111,17 @@ describe("buildEmbeddedRunPayloads", () => {
     expect(payloads.some((payload) => payload.text?.includes("request_id"))).toBe(false);
   });
 
-  it("includes provider and model context for billing errors", () => {
+  it("includes provider context for billing errors", () => {
     const payloads = buildPayloads({
       lastAssistant: makeAssistant({
-        model: "claude-3-5-sonnet",
         errorMessage: "insufficient credits",
         content: [{ type: "text", text: "insufficient credits" }],
       }),
       provider: "Anthropic",
-      model: "claude-3-5-sonnet",
     });
 
     expect(payloads).toHaveLength(1);
-    expect(payloads[0]?.text).toBe(formatBillingErrorMessage("Anthropic", "claude-3-5-sonnet"));
+    expect(payloads[0]?.text).toBe(formatBillingErrorMessage("Anthropic"));
     expect(payloads[0]?.isError).toBe(true);
   });
 
@@ -121,18 +145,17 @@ describe("buildEmbeddedRunPayloads", () => {
     expectSinglePayloadText(payloads, errorJsonPretty.trim());
   });
 
-  it("adds a fallback error when a tool fails and no assistant output exists", () => {
-    const payloads = buildPayloads({
+  it("emits warning events when a tool fails and no assistant output exists", () => {
+    const warnings = buildWarnings({
       lastToolError: { toolName: "browser", error: "tab not found" },
     });
 
-    expectSingleToolErrorPayload(payloads, {
-      title: "Browser",
-      absentDetail: "tab not found",
-    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.text).toContain("Browser");
+    expect(warnings[0]?.text).toContain("tab not found");
   });
 
-  it("does not add tool error fallback when assistant output exists", () => {
+  it("does not emit non-mutating warning when assistant output exists", () => {
     const payloads = buildPayloads({
       assistantTexts: ["All good"],
       lastAssistant: makeStoppedAssistant(),
@@ -160,40 +183,43 @@ describe("buildEmbeddedRunPayloads", () => {
     expectNoSyntheticCompletionForSession("agent:main:telegram:group:g123");
   });
 
-  it("does not add synthetic completion text when messaging tool already delivered output", () => {
+  it("does not emit non-mutating warning when assistant output exists", () => {
     const payloads = buildPayloads({
-      sessionKey: "agent:main:discord:direct:u123",
-      toolMetas: [{ toolName: "message_send", meta: "sent to #ops" }],
-      didSendViaMessagingTool: true,
+      assistantTexts: ["All good"],
+      lastAssistant: makeStoppedAssistant(),
+      lastToolError: { toolName: "browser", error: "tab not found" },
+    });
+    const warnings = buildWarnings({
+      assistantTexts: ["All good"],
       lastAssistant: makeAssistant({
         stopReason: "stop",
         errorMessage: undefined,
         content: [],
       }),
+      lastToolError: { toolName: "browser", error: "tab not found" },
     });
 
-    expect(payloads).toHaveLength(0);
+    expectSinglePayloadText(payloads, "All good");
+    expect(warnings).toHaveLength(0);
   });
 
-  it("does not add synthetic completion text when the run still has a tool error", () => {
-    const payloads = buildPayloads({
-      toolMetas: [{ toolName: "browser", meta: "open https://example.com" }],
-      lastToolError: { toolName: "browser", error: "url required" },
+  it("emits exec warning even when assistant output exists", () => {
+    const warnings = buildWarnings({
+      assistantTexts: ["NO_REPLY"],
+      lastAssistant: makeAssistant({
+        stopReason: "stop",
+        errorMessage: undefined,
+        content: [],
+      }),
+      lastToolError: { toolName: "exec", error: "Command exited with code 42" },
     });
 
-    expect(payloads).toHaveLength(0);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.text).toContain("Exec failed: Command exited with code 42");
   });
 
-  it("does not add synthetic completion text when no tools ran", () => {
-    const payloads = buildPayloads({
-      lastAssistant: makeStoppedAssistant(),
-    });
-
-    expect(payloads).toHaveLength(0);
-  });
-
-  it("adds tool error fallback when the assistant only invoked tools and verbose mode is on", () => {
-    const payloads = buildPayloads({
+  it("emits warning when the assistant only invoked tools", () => {
+    const warnings = buildWarnings({
       lastAssistant: makeAssistant({
         stopReason: "toolUse",
         errorMessage: undefined,
@@ -207,130 +233,108 @@ describe("buildEmbeddedRunPayloads", () => {
         ],
       }),
       lastToolError: { toolName: "exec", error: "Command exited with code 1" },
-      verboseLevel: "on",
     });
 
-    expectSingleToolErrorPayload(payloads, {
-      title: "Exec",
-      detail: "code 1",
-    });
-  });
-
-  it("does not add tool error fallback when assistant text exists after tool calls", () => {
-    const payloads = buildPayloads({
-      assistantTexts: ["Checked the page and recovered with final answer."],
-      lastAssistant: makeAssistant({
-        stopReason: "toolUse",
-        errorMessage: undefined,
-        content: [
-          {
-            type: "toolCall",
-            id: "toolu_01",
-            name: "browser",
-            arguments: { action: "search", query: "openclaw docs" },
-          },
-        ],
-      }),
-      lastToolError: { toolName: "browser", error: "connection timeout" },
-    });
-
-    expect(payloads).toHaveLength(1);
-    expect(payloads[0]?.isError).toBeUndefined();
-    expect(payloads[0]?.text).toContain("recovered");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.text).toMatch(/^⚠️\s+🛠️\s+Exec/);
+    expect(warnings[0]?.text).toContain("code 1");
+    expect(warnings[0]?.kind).toBe("tool_error");
+    expect(warnings[0]?.fingerprint).toMatch(/^[a-f0-9]{40}$/);
   });
 
   it("suppresses recoverable tool errors containing 'required' for non-mutating tools", () => {
-    const payloads = buildPayloads({
+    const warnings = buildWarnings({
       lastToolError: { toolName: "browser", error: "url required" },
     });
 
-    // Recoverable errors should not be sent to the user
-    expect(payloads).toHaveLength(0);
+    expect(warnings).toHaveLength(0);
   });
 
   it("suppresses recoverable tool errors containing 'missing' for non-mutating tools", () => {
-    const payloads = buildPayloads({
+    const warnings = buildWarnings({
       lastToolError: { toolName: "browser", error: "url missing" },
     });
 
-    expect(payloads).toHaveLength(0);
+    expect(warnings).toHaveLength(0);
   });
 
   it("suppresses recoverable tool errors containing 'invalid' for non-mutating tools", () => {
-    const payloads = buildPayloads({
+    const warnings = buildWarnings({
       lastToolError: { toolName: "browser", error: "invalid parameter: url" },
     });
 
-    expect(payloads).toHaveLength(0);
+    expect(warnings).toHaveLength(0);
   });
 
   it("suppresses non-mutating non-recoverable tool errors when messages.suppressToolErrors is enabled", () => {
-    const payloads = buildPayloads({
+    const warnings = buildWarnings({
       lastToolError: { toolName: "browser", error: "connection timeout" },
       config: { messages: { suppressToolErrors: true } },
     });
 
-    expect(payloads).toHaveLength(0);
+    expect(warnings).toHaveLength(0);
   });
 
-  it("suppresses mutating tool errors when suppressToolErrorWarnings is enabled", () => {
-    const payloads = buildPayloads({
-      lastToolError: { toolName: "exec", error: "command not found" },
-      suppressToolErrorWarnings: true,
+  it("still emits mutating tool warnings when messages.suppressToolErrors is enabled", () => {
+    const warnings = buildWarnings({
+      lastToolError: { toolName: "write", error: "connection timeout" },
+      config: { messages: { suppressToolErrors: true } },
     });
 
-    expect(payloads).toHaveLength(0);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.text).toContain("connection timeout");
   });
 
-  it.each([
-    {
-      name: "still shows mutating tool errors when messages.suppressToolErrors is enabled",
-      payload: {
-        lastToolError: { toolName: "write", error: "connection timeout" },
-        config: { messages: { suppressToolErrors: true } },
-      },
-      title: "Write",
-      absentDetail: "connection timeout",
-    },
-    {
-      name: "shows recoverable tool errors for mutating tools",
-      payload: {
-        lastToolError: { toolName: "message", meta: "reply", error: "text required" },
-      },
-      title: "Message",
-      absentDetail: "required",
-    },
-    {
-      name: "shows non-recoverable tool failure summaries to the user",
-      payload: {
-        lastToolError: { toolName: "browser", error: "connection timeout" },
-      },
-      title: "Browser",
-      absentDetail: "connection timeout",
-    },
-  ])("$name", ({ payload, title, absentDetail }) => {
-    const payloads = buildPayloads(payload);
-    expectSingleToolErrorPayload(payloads, { title, absentDetail });
+  it("keeps exec warning events when messages.suppressToolErrors is enabled", () => {
+    const warnings = buildWarnings({
+      lastToolError: { toolName: "exec", error: "Command exited with code 1" },
+      config: { messages: { suppressToolErrors: true } },
+    });
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.text).toContain("⚠️ 🛠️ Exec failed: Command exited with code 1");
   });
 
-  it("shows mutating tool errors even when assistant output exists", () => {
+  it("shows recoverable tool errors for mutating tools", () => {
+    const warnings = buildWarnings({
+      lastToolError: { toolName: "message", meta: "reply", error: "text required" },
+    });
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.text).toContain("required");
+  });
+
+  it("emits mutating tool warnings even when assistant output exists", () => {
     const payloads = buildPayloads({
       assistantTexts: ["Done."],
-      lastAssistant: { stopReason: "end_turn" } as unknown as AssistantMessage,
+      lastAssistant: { stopReason: "end_turn" } as AssistantMessage,
+      lastToolError: { toolName: "write", error: "file missing" },
+    });
+    const warnings = buildWarnings({
+      assistantTexts: ["Done."],
+      lastAssistant: { stopReason: "end_turn" } as AssistantMessage,
       lastToolError: { toolName: "write", error: "file missing" },
     });
 
-    expect(payloads).toHaveLength(2);
+    expect(payloads).toHaveLength(1);
     expect(payloads[0]?.text).toBe("Done.");
-    expect(payloads[1]?.isError).toBe(true);
-    expect(payloads[1]?.text).toContain("Write");
-    expect(payloads[1]?.text).not.toContain("missing");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.text).toContain("missing");
   });
 
   it("does not treat session_status read failures as mutating when explicitly flagged", () => {
     const payloads = buildPayloads({
       assistantTexts: ["Status loaded."],
-      lastAssistant: { stopReason: "end_turn" } as unknown as AssistantMessage,
+      lastAssistant: { stopReason: "end_turn" } as AssistantMessage,
+      lastToolError: {
+        toolName: "session_status",
+        error: "model required",
+        mutatingAction: false,
+      },
+    });
+    const warnings = buildWarnings({
+      assistantTexts: ["Status loaded."],
+      lastAssistant: { stopReason: "end_turn" } as AssistantMessage,
       lastToolError: {
         toolName: "session_status",
         error: "model required",
@@ -340,10 +344,11 @@ describe("buildEmbeddedRunPayloads", () => {
 
     expect(payloads).toHaveLength(1);
     expect(payloads[0]?.text).toBe("Status loaded.");
+    expect(warnings).toHaveLength(0);
   });
 
-  it("dedupes identical tool warning text already present in assistant output", () => {
-    const seed = buildPayloads({
+  it("dedupes warning text already present in assistant output", () => {
+    const seed = buildWarnings({
       lastToolError: {
         toolName: "write",
         error: "file missing",
@@ -353,9 +358,9 @@ describe("buildEmbeddedRunPayloads", () => {
     const warningText = seed[0]?.text;
     expect(warningText).toBeTruthy();
 
-    const payloads = buildPayloads({
+    const warnings = buildWarnings({
       assistantTexts: [warningText ?? ""],
-      lastAssistant: { stopReason: "end_turn" } as unknown as AssistantMessage,
+      lastAssistant: { stopReason: "end_turn" } as AssistantMessage,
       lastToolError: {
         toolName: "write",
         error: "file missing",
@@ -363,19 +368,16 @@ describe("buildEmbeddedRunPayloads", () => {
       },
     });
 
-    expect(payloads).toHaveLength(1);
-    expect(payloads[0]?.text).toBe(warningText);
+    expect(warnings).toHaveLength(0);
   });
 
-  it("includes non-recoverable tool error details when verbose mode is on", () => {
-    const payloads = buildPayloads({
+  it("emits non-recoverable tool errors as warnings", () => {
+    const warnings = buildWarnings({
       lastToolError: { toolName: "browser", error: "connection timeout" },
       verboseLevel: "on",
     });
 
-    expectSingleToolErrorPayload(payloads, {
-      title: "Browser",
-      detail: "connection timeout",
-    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.text).toContain("connection timeout");
   });
 });

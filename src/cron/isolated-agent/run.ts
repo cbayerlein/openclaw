@@ -26,6 +26,7 @@ import { runEmbeddedPiAgent } from "../../agents/pi-embedded.js";
 import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
 import { deriveSessionTotalTokens, hasNonzeroUsage } from "../../agents/usage.js";
 import { ensureAgentWorkspace } from "../../agents/workspace.js";
+import { processWarningEvents } from "../../auto-reply/reply/warning-routing.js";
 import {
   normalizeThinkLevel,
   normalizeVerboseLevel,
@@ -527,11 +528,18 @@ export async function runCronIsolatedAgentTurn(params: {
     return withRunSession({ status: "error", error: String(err) });
   }
 
-  if (isAborted()) {
-    return withRunSession({ status: "error", error: abortReason() });
+  let payloads = runResult.payloads ?? [];
+  const warningEvents = runResult.warnings ?? [];
+  if (warningEvents.length > 0) {
+    const warningPayloads = await processWarningEvents({
+      warnings: warningEvents,
+      cfg: cfgWithAgentDefaults,
+      sessionKey: agentSessionKey,
+    });
+    if (warningPayloads.length > 0) {
+      payloads = [...payloads, ...warningPayloads];
+    }
   }
-
-  const payloads = runResult.payloads ?? [];
 
   // Update token+model fields in the session store.
   // Also collect best-effort telemetry for the cron run log.
