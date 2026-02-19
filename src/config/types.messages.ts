@@ -49,37 +49,22 @@ export type AudioConfig = {
   };
 };
 
-export type StatusReactionsEmojiConfig = {
-  thinking?: string;
-  tool?: string;
-  coding?: string;
-  web?: string;
-  done?: string;
-  error?: string;
-  stallSoft?: string;
-  stallHard?: string;
-};
-
-export type StatusReactionsTimingConfig = {
-  /** Debounce interval for intermediate states (ms). Default: 700. */
-  debounceMs?: number;
-  /** Soft stall warning timeout (ms). Default: 25000. */
-  stallSoftMs?: number;
-  /** Hard stall warning timeout (ms). Default: 60000. */
-  stallHardMs?: number;
-  /** How long to hold done emoji before cleanup (ms). Default: 1500. */
-  doneHoldMs?: number;
-  /** How long to hold error emoji before cleanup (ms). Default: 2500. */
-  errorHoldMs?: number;
-};
-
-export type StatusReactionsConfig = {
-  /** Enable lifecycle status reactions (default: false). */
+export type ToolWarningsConfig = {
+  /** Feature flag for structured warning routing pipeline. Default: false. */
   enabled?: boolean;
-  /** Override default emojis. */
-  emojis?: StatusReactionsEmojiConfig;
-  /** Override default timing. */
-  timing?: StatusReactionsTimingConfig;
+  /** Dedicated warning channel (e.g. telegram). */
+  target?: string;
+  /** Destination id for the warning channel (chat/group/user id). */
+  to?: string;
+  /** Route only exec/bash tool errors to warning channel (default: true). */
+  execOnly?: boolean;
+  /**
+   * Fallback to user chat when warning route is missing/failed.
+   * Default: true.
+   */
+  fallbackToUserChat?: boolean;
+  /** Fingerprint dedupe window in ms (default: 600000 = 10 minutes). */
+  dedupeWindowMs?: number;
 };
 
 export type MessagesConfig = {
@@ -119,6 +104,8 @@ export type MessagesConfig = {
   statusReactions?: StatusReactionsConfig;
   /** When true, suppress ⚠️ tool-error warnings from being shown to the user. Default: false. */
   suppressToolErrors?: boolean;
+  /** Dedicated routing + dedupe policy for structured tool warning events. */
+  toolWarnings?: ToolWarningsConfig;
   /** Text-to-speech settings for outbound replies. */
   tts?: TtsConfig;
 };
