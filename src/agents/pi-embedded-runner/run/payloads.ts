@@ -77,13 +77,16 @@ function shouldEmitToolWarningEvent(params: {
 
 /**
  * Build a stable warning fingerprint used by downstream dedupe/rate-limit logic.
- * Prefer actionFingerprint when present (more semantic stability), fallback to
- * tool + summary + error tuple.
+ *
+ * Important: do not rely on actionFingerprint alone for exec/bash, because it can
+ * be too coarse (for example just `tool=exec`) and collapse distinct failures into
+ * one dedupe bucket. We always include normalized error text in the hash source.
  */
 function buildWarningFingerprint(lastToolError: LastToolError): string {
-  const source =
-    lastToolError.actionFingerprint ??
-    `${lastToolError.toolName}|${lastToolError.meta ?? ""}|${lastToolError.error ?? ""}`;
+  const base =
+    lastToolError.actionFingerprint ?? `${lastToolError.toolName}|${lastToolError.meta ?? ""}`;
+  const errorPart = (lastToolError.error ?? "").trim().replace(/\s+/g, " ");
+  const source = `${base}|error=${errorPart}`;
   return crypto.createHash("sha1").update(source).digest("hex");
 }
 
