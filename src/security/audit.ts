@@ -15,6 +15,7 @@ import {
   listInterpreterLikeSafeBins,
   resolveMergedSafeBinProfileFixtures,
 } from "../infra/exec-safe-bin-runtime-policy.js";
+import { isTruthyEnvValue } from "../infra/env.js";
 import { collectChannelSecurityFindings } from "./audit-channel.js";
 import {
   collectAttackSurfaceSummaryFindings,
@@ -427,14 +428,20 @@ function collectGatewayConfigFindings(
     });
   }
 
-  if (cfg.gateway?.controlUi?.allowInsecureAuth === true) {
+  const allowInsecureHttpGatewayAudit = isTruthyEnvValue(
+    env.OPENCLAW_SECURITY_AUDIT_ALLOW_INSECURE_HTTP_GATEWAY,
+  );
+
+  if (cfg.gateway?.controlUi?.allowInsecureAuth === true && !allowInsecureHttpGatewayAudit) {
     findings.push({
       checkId: "gateway.control_ui.insecure_auth",
       severity: "warn",
       title: "Control UI insecure auth toggle enabled",
       detail:
         "gateway.controlUi.allowInsecureAuth=true does not bypass secure context or device identity checks; only dangerouslyDisableDeviceAuth disables Control UI device identity checks.",
-      remediation: "Disable it or switch to HTTPS (Tailscale Serve) or localhost.",
+      remediation:
+        "Disable it or switch to HTTPS (Tailscale Serve) or localhost. " +
+        "If this is an intentional local setup, set OPENCLAW_SECURITY_AUDIT_ALLOW_INSECURE_HTTP_GATEWAY=1 in gateway.env to suppress this audit finding.",
     });
   }
 
