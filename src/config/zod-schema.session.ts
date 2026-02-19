@@ -104,6 +104,18 @@ export const SessionSchema = z
   .strict()
   .optional();
 
+const ToolWarningsSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    target: z.string().optional(),
+    to: z.string().optional(),
+    execOnly: z.boolean().optional(),
+    fallbackToUserChat: z.boolean().optional(),
+    dedupeWindowMs: z.number().int().positive().optional(),
+  })
+  .strict()
+  .optional();
+
 export const MessagesSchema = z
   .object({
     messagePrefix: z.string().optional(),
@@ -115,6 +127,7 @@ export const MessagesSchema = z
     ackReactionScope: z.enum(["group-mentions", "group-all", "direct", "all"]).optional(),
     removeAckAfterReply: z.boolean().optional(),
     suppressToolErrors: z.boolean().optional(),
+    toolWarnings: ToolWarningsSchema,
     tts: TtsConfigSchema,
   })
   .strict()
