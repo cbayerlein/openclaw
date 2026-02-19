@@ -210,7 +210,18 @@ export function isToolResultError(result: unknown): boolean {
   if (!details || typeof details !== "object") {
     return false;
   }
-  const status = (details as { status?: unknown }).status;
+  const detailRecord = details as Record<string, unknown>;
+  const exitCodeRaw = detailRecord.exitCode;
+  if (typeof exitCodeRaw === "number" && Number.isFinite(exitCodeRaw) && exitCodeRaw !== 0) {
+    return true;
+  }
+  if (typeof exitCodeRaw === "string") {
+    const parsed = Number.parseInt(exitCodeRaw, 10);
+    if (Number.isFinite(parsed) && parsed !== 0) {
+      return true;
+    }
+  }
+  const status = detailRecord.status;
   if (typeof status !== "string") {
     return false;
   }
@@ -223,6 +234,20 @@ export function extractToolErrorMessage(result: unknown): string | undefined {
     return undefined;
   }
   const record = result as Record<string, unknown>;
+  const details =
+    record.details && typeof record.details === "object"
+      ? (record.details as Record<string, unknown>)
+      : undefined;
+  const exitCodeRaw = details?.exitCode;
+  if (typeof exitCodeRaw === "number" && Number.isFinite(exitCodeRaw) && exitCodeRaw !== 0) {
+    return `Command exited with code ${exitCodeRaw}`;
+  }
+  if (typeof exitCodeRaw === "string") {
+    const parsed = Number.parseInt(exitCodeRaw, 10);
+    if (Number.isFinite(parsed) && parsed !== 0) {
+      return `Command exited with code ${parsed}`;
+    }
+  }
   const fromDetails = extractErrorField(record.details);
   if (fromDetails) {
     return fromDetails;

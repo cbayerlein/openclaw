@@ -1,12 +1,10 @@
-import type { AssistantMessage } from "@mariozechner/pi-ai";
 import crypto from "node:crypto";
-import type { ReasoningLevel, VerboseLevel } from "../../../auto-reply/thinking.js";
-import type { OpenClawConfig } from "../../../config/config.js";
-import type { ToolResultFormat } from "../../pi-embedded-subscribe.js";
-import type { EmbeddedPiWarningEvent } from "../types.js";
+import type { AssistantMessage } from "@mariozechner/pi-ai";
 import { parseReplyDirectives } from "../../../auto-reply/reply/reply-directives.js";
+import type { ReasoningLevel, VerboseLevel } from "../../../auto-reply/thinking.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../../../auto-reply/tokens.js";
 import { formatToolAggregate } from "../../../auto-reply/tool-meta.js";
+import type { OpenClawConfig } from "../../../config/config.js";
 import {
   BILLING_ERROR_USER_MESSAGE,
   formatAssistantErrorText,
@@ -15,12 +13,14 @@ import {
   isRawApiErrorPayload,
   normalizeTextForComparison,
 } from "../../pi-embedded-helpers.js";
+import type { ToolResultFormat } from "../../pi-embedded-subscribe.js";
 import {
   extractAssistantText,
   extractAssistantThinking,
   formatReasoningMessage,
 } from "../../pi-embedded-utils.js";
 import { isLikelyMutatingToolName } from "../../tool-mutation.js";
+import type { EmbeddedPiWarningEvent } from "../types.js";
 
 type ToolMetaEntry = { toolName: string; meta?: string };
 type LastToolError = {
@@ -77,13 +77,16 @@ function shouldEmitToolWarningEvent(params: {
 
 /**
  * Build a stable warning fingerprint used by downstream dedupe/rate-limit logic.
- * Prefer actionFingerprint when present (more semantic stability), fallback to
- * tool + summary + error tuple.
+ *
+ * Important: do not rely on actionFingerprint alone for exec/bash, because it can
+ * be too coarse (for example just `tool=exec`) and collapse distinct failures into
+ * one dedupe bucket. We always include normalized error text in the hash source.
  */
 function buildWarningFingerprint(lastToolError: LastToolError): string {
-  const source =
-    lastToolError.actionFingerprint ??
-    `${lastToolError.toolName}|${lastToolError.meta ?? ""}|${lastToolError.error ?? ""}`;
+  const base =
+    lastToolError.actionFingerprint ?? `${lastToolError.toolName}|${lastToolError.meta ?? ""}`;
+  const errorPart = (lastToolError.error ?? "").trim().replace(/\s+/g, " ");
+  const source = `${base}|error=${errorPart}`;
   return crypto.createHash("sha1").update(source).digest("hex");
 }
 
