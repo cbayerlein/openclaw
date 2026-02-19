@@ -698,6 +698,26 @@ describe("security audit", () => {
     );
   });
 
+  it("suppresses insecure control UI auth finding when env audit override is enabled", async () => {
+    const cfg: OpenClawConfig = {
+      gateway: {
+        bind: "loopback",
+        auth: { token: "very-long-browser-token-0123456789" },
+        trustedProxies: ["127.0.0.1", "::1", "192.168.2.114"],
+        controlUi: { allowInsecureAuth: true },
+      },
+    };
+
+    const res = await runSecurityAudit({
+      config: cfg,
+      env: { OPENCLAW_SECURITY_AUDIT_ALLOW_INSECURE_HTTP_GATEWAY: "1" },
+      includeFilesystem: false,
+      includeChannelSecurity: false,
+    });
+
+    expect(res.findings.some((f) => f.checkId === "gateway.control_ui.insecure_auth")).toBe(false);
+  });
+
   it("warns when control UI device auth is disabled", async () => {
     const cfg: OpenClawConfig = {
       gateway: {

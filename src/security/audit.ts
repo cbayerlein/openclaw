@@ -9,6 +9,7 @@ import { resolveGatewayAuth } from "../gateway/auth.js";
 import { buildGatewayConnectionDetails } from "../gateway/call.js";
 import { resolveGatewayProbeAuth } from "../gateway/probe-auth.js";
 import { probeGateway } from "../gateway/probe.js";
+import { isTruthyEnvValue } from "../infra/env.js";
 import { collectChannelSecurityFindings } from "./audit-channel.js";
 import {
   collectAttackSurfaceSummaryFindings,
@@ -342,14 +343,20 @@ function collectGatewayConfigFindings(
     });
   }
 
-  if (cfg.gateway?.controlUi?.allowInsecureAuth === true) {
+  const allowInsecureHttpGatewayAudit = isTruthyEnvValue(
+    env.OPENCLAW_SECURITY_AUDIT_ALLOW_INSECURE_HTTP_GATEWAY,
+  );
+
+  if (cfg.gateway?.controlUi?.allowInsecureAuth === true && !allowInsecureHttpGatewayAudit) {
     findings.push({
       checkId: "gateway.control_ui.insecure_auth",
       severity: "critical",
       title: "Control UI allows insecure HTTP auth",
       detail:
         "gateway.controlUi.allowInsecureAuth=true allows token-only auth over HTTP and skips device identity.",
-      remediation: "Disable it or switch to HTTPS (Tailscale Serve) or localhost.",
+      remediation:
+        "Disable it or switch to HTTPS (Tailscale Serve) or localhost. " +
+        "If this is an intentional local setup, set OPENCLAW_SECURITY_AUDIT_ALLOW_INSECURE_HTTP_GATEWAY=1 in gateway.env to suppress this audit finding.",
     });
   }
 
