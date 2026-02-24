@@ -30,10 +30,7 @@ type LastToolError = {
   mutatingAction?: boolean;
   actionFingerprint?: string;
 };
-type ToolErrorWarningPolicy = {
-  showWarning: boolean;
-  includeDetails: boolean;
-};
+// Legacy warning policy shape removed after warning-event routing refactor.
 
 const RECOVERABLE_TOOL_ERROR_KEYWORDS = [
   "required",
@@ -108,6 +105,7 @@ export function buildEmbeddedRunPayloads(params: {
   toolResultFormat?: ToolResultFormat;
   suppressToolErrorWarnings?: boolean;
   inlineToolResultsAllowed: boolean;
+  didSendViaMessagingTool?: boolean;
 }): {
   payloads: Array<{
     text?: string;
@@ -305,10 +303,7 @@ export function buildEmbeddedRunPayloads(params: {
         params.lastToolError.meta ? [params.lastToolError.meta] : undefined,
         { markdown: useMarkdown },
       );
-      const errorSuffix =
-        warningPolicy.includeDetails && params.lastToolError.error
-          ? `: ${params.lastToolError.error}`
-          : "";
+      const errorSuffix = params.lastToolError.error ? `: ${params.lastToolError.error}` : "";
       const warningText = `⚠️ ${toolSummary} failed${errorSuffix}`;
       const normalizedWarning = normalizeTextForComparison(warningText);
       const duplicateWarning = normalizedWarning
