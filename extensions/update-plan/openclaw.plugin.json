@@ -1,0 +1,10 @@
+{
+  "id": "update-plan",
+  "name": "Update Plan",
+  "description": "Optional agent tool to keep a concise multi-step execution plan and persist the latest plan locally.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
