@@ -7,6 +7,8 @@ type UpdateFileChunk = {
   isEndOfFile: boolean;
 };
 
+type LineNormalizer = (value: string) => string;
+
 async function defaultReadFile(filePath: string): Promise<string> {
   return fs.readFile(filePath, "utf8");
 }
@@ -21,17 +23,29 @@ export async function applyUpdateHunk(
     throw new Error(`Failed to read file to update ${filePath}: ${err}`);
   });
 
-  const originalLines = originalContents.split("\n");
-  if (originalLines.length > 0 && originalLines[originalLines.length - 1] === "") {
+  const { bom, text: contentWithoutBom } = stripBom(originalContents);
+  const originalEnding = detectLineEnding(contentWithoutBom);
+  const normalizedContent = normalizeToLF(contentWithoutBom);
+  const originalLines = normalizedContent.split("\n");
+  const hadTrailingNewline =
+    originalLines.length > 0 && originalLines[originalLines.length - 1] === "";
+  if (hadTrailingNewline) {
     originalLines.pop();
   }
 
   const replacements = computeReplacements(originalLines, filePath, chunks);
   let newLines = applyReplacements(originalLines, replacements);
-  if (newLines.length === 0 || newLines[newLines.length - 1] !== "") {
+  if (hadTrailingNewline || newLines.length === 0 || newLines[newLines.length - 1] !== "") {
     newLines = [...newLines, ""];
   }
-  return newLines.join("\n");
+  const nextNormalized = newLines.join("\n");
+  const finalContent = bom + restoreLineEndings(nextNormalized, originalEnding);
+  if (finalContent === originalContents) {
+    throw new Error(
+      `No changes made to ${filePath}. The replacement produced identical content. This might indicate an issue with special characters or the text not existing as expected.`,
+    );
+  }
+  return finalContent;
 }
 
 function computeReplacements(
@@ -44,7 +58,9 @@ function computeReplacements(
 
   for (const chunk of chunks) {
     if (chunk.changeContext) {
-      const ctxIndex = seekSequence(originalLines, [chunk.changeContext], lineIndex, false);
+      const ctxIndex = seekSequence(originalLines, [chunk.changeContext], lineIndex, false, {
+        requireUnique: false,
+      });
       if (ctxIndex === null) {
         throw new Error(`Failed to find context '${chunk.changeContext}' in ${filePath}`);
       }
@@ -62,14 +78,20 @@ function computeReplacements(
 
     let pattern = chunk.oldLines;
     let newSlice = chunk.newLines;
-    let found = seekSequence(originalLines, pattern, lineIndex, chunk.isEndOfFile);
+    let found = seekSequence(originalLines, pattern, lineIndex, chunk.isEndOfFile, {
+      filePath,
+      requireUnique: true,
+    });
 
     if (found === null && pattern[pattern.length - 1] === "") {
       pattern = pattern.slice(0, -1);
       if (newSlice.length > 0 && newSlice[newSlice.length - 1] === "") {
         newSlice = newSlice.slice(0, -1);
       }
-      found = seekSequence(originalLines, pattern, lineIndex, chunk.isEndOfFile);
+      found = seekSequence(originalLines, pattern, lineIndex, chunk.isEndOfFile, {
+        filePath,
+        requireUnique: true,
+      });
     }
 
     if (found === null) {
@@ -109,6 +131,10 @@ function seekSequence(
   pattern: string[],
   start: number,
   eof: boolean,
+  options?: {
+    filePath?: string;
+    requireUnique?: boolean;
+  },
 ): number | null {
   if (pattern.length === 0) {
     return start;
@@ -123,28 +149,49 @@ function seekSequence(
     return null;
   }
 
-  for (let i = searchStart; i <= maxStart; i += 1) {
-    if (linesMatch(lines, pattern, i, (value) => value)) {
-      return i;
+  const filePath = options?.filePath ?? "<unknown>";
+  const requireUnique = options?.requireUnique !== false;
+  const searchNormalizers: LineNormalizer[] = [
+    (value) => value,
+    (value) => value.trimEnd(),
+    (value) => value.trim(),
+    (value) => normalizePunctuation(value.trim()),
+  ];
+
+  for (const normalize of searchNormalizers) {
+    const matches = collectMatches(lines, pattern, searchStart, maxStart, normalize);
+    if (matches.length === 0) {
+      continue;
     }
-  }
-  for (let i = searchStart; i <= maxStart; i += 1) {
-    if (linesMatch(lines, pattern, i, (value) => value.trimEnd())) {
-      return i;
-    }
-  }
-  for (let i = searchStart; i <= maxStart; i += 1) {
-    if (linesMatch(lines, pattern, i, (value) => value.trim())) {
-      return i;
-    }
-  }
-  for (let i = searchStart; i <= maxStart; i += 1) {
-    if (linesMatch(lines, pattern, i, (value) => normalizePunctuation(value.trim()))) {
-      return i;
-    }
+    return requireUnique ? assertUniqueMatch(matches, filePath, pattern) : matches[0];
   }
 
   return null;
+}
+
+function collectMatches(
+  lines: string[],
+  pattern: string[],
+  searchStart: number,
+  maxStart: number,
+  normalize: (value: string) => string,
+): number[] {
+  const matches: number[] = [];
+  for (let i = searchStart; i <= maxStart; i += 1) {
+    if (linesMatch(lines, pattern, i, normalize)) {
+      matches.push(i);
+    }
+  }
+  return matches;
+}
+
+function assertUniqueMatch(matches: number[], filePath: string, pattern: string[]): number {
+  if (matches.length === 1) {
+    return matches[0];
+  }
+  throw new Error(
+    `Found ${matches.length} occurrences of the expected patch text in ${filePath}. The match must be unique. Add more context to disambiguate.\n${pattern.join("\n")}`,
+  );
 }
 
 function linesMatch(
@@ -202,4 +249,41 @@ function normalizePunctuation(value: string): string {
       }
     })
     .join("");
+}
+
+function stripBom(text: string): { bom: string; text: string } {
+  if (text.charCodeAt(0) === 0xfeff) {
+    return { bom: "\ufeff", text: text.slice(1) };
+  }
+  return { bom: "", text };
+}
+
+function normalizeToLF(text: string): string {
+  return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+function detectLineEnding(content: string): "\r\n" | "\n" | "\r" {
+  for (let i = 0; i < content.length; i += 1) {
+    const char = content[i];
+    if (char === "\r") {
+      if (content[i + 1] === "\n") {
+        return "\r\n";
+      }
+      return "\r";
+    }
+    if (char === "\n") {
+      return "\n";
+    }
+  }
+  return "\n";
+}
+
+function restoreLineEndings(content: string, ending: "\r\n" | "\n" | "\r"): string {
+  if (ending === "\n") {
+    return content;
+  }
+  if (ending === "\r\n") {
+    return content.replace(/\n/g, "\r\n");
+  }
+  return content.replace(/\n/g, "\r");
 }
