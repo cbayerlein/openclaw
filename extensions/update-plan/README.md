@@ -28,29 +28,6 @@ The latest plan is persisted locally under:
 }
 ```
 
-## Optional enforcement mode
-
-You can require planning before other tool calls:
-
-```json
-{
-  "plugins": {
-    "entries": {
-      "update-plan": {
-        "enabled": true,
-        "config": { "enforcementMode": "block" }
-      }
-    }
-  }
-}
-```
-
-Modes:
-
-- `off` (default): no guardrail
-- `warn`: log warning when another tool is used before `update_plan`
-- `block`: block non-`update_plan` tools until `update_plan` is called for the run
-
 ## Allowlist (optional tool)
 
 ```json
