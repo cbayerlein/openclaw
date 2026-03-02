@@ -5,6 +5,12 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {}
+    "properties": {
+      "enforcementMode": {
+        "type": "string",
+        "enum": ["off", "warn", "block"],
+        "description": "Optional guardrail before tool calls: off (default), warn, or block until update_plan is called."
+      }
+    }
   }
 }
