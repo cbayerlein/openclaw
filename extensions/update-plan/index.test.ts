@@ -2,20 +2,27 @@ import type { OpenClawPluginApi, OpenClawPluginToolContext } from "openclaw/plug
 import { describe, expect, it, vi } from "vitest";
 import register from "./index.js";
 
-function createApi(registerTool: OpenClawPluginApi["registerTool"]): OpenClawPluginApi {
+function createApi(
+  registerTool: OpenClawPluginApi["registerTool"],
+  opts: {
+    pluginConfig?: Record<string, unknown>;
+    on?: OpenClawPluginApi["on"];
+    logger?: OpenClawPluginApi["logger"];
+  } = {},
+): OpenClawPluginApi {
   return {
     id: "update-plan",
     name: "update-plan",
     source: "test",
     config: {},
-    pluginConfig: {},
+    pluginConfig: opts.pluginConfig ?? {},
     runtime: {
       version: "test",
       state: {
         resolveStateDir: () => "/tmp",
       },
     },
-    logger: { debug() {}, info() {}, warn() {}, error() {} },
+    logger: opts.logger ?? { debug() {}, info() {}, warn() {}, error() {} },
     registerTool,
     registerHook() {},
     registerHttpHandler() {},
@@ -27,7 +34,7 @@ function createApi(registerTool: OpenClawPluginApi["registerTool"]): OpenClawPlu
     registerProvider() {},
     registerCommand() {},
     resolvePath: (value) => value,
-    on() {},
+    on: opts.on ?? (() => {}),
   } as unknown as OpenClawPluginApi;
 }
 
@@ -49,5 +56,62 @@ describe("update-plan plugin registration", () => {
       workspaceDir: "/tmp",
     });
     expect(tool?.name).toBe("update_plan");
+  });
+
+  it("blocks non-update_plan tool calls in block mode until update_plan is called", () => {
+    const registerTool = vi.fn();
+    const handlers = new Map<string, (...args: unknown[]) => unknown>();
+    const on = vi.fn((hookName: string, handler: (...args: unknown[]) => unknown) => {
+      handlers.set(hookName, handler);
+    });
+
+    register(createApi(registerTool, { pluginConfig: { enforcementMode: "block" }, on }));
+
+    const beforeModelResolve = handlers.get("before_model_resolve");
+    const beforeToolCall = handlers.get("before_tool_call");
+
+    expect(beforeModelResolve).toBeTypeOf("function");
+    expect(beforeToolCall).toBeTypeOf("function");
+
+    beforeModelResolve?.({}, { sessionKey: "agent:main:test", agentId: "main" });
+    const blocked = beforeToolCall?.(
+      { toolName: "read", params: {} },
+      { sessionKey: "agent:main:test", agentId: "main", toolName: "read" },
+    ) as { block?: boolean; blockReason?: string } | undefined;
+    expect(blocked?.block).toBe(true);
+    expect(blocked?.blockReason).toContain("update_plan");
+
+    beforeToolCall?.(
+      { toolName: "update_plan", params: { plan: [{ step: "x", status: "in_progress" }] } },
+      { sessionKey: "agent:main:test", agentId: "main", toolName: "update_plan" },
+    );
+    const allowedAfterPlanning = beforeToolCall?.(
+      { toolName: "read", params: {} },
+      { sessionKey: "agent:main:test", agentId: "main", toolName: "read" },
+    );
+    expect(allowedAfterPlanning).toBeUndefined();
+  });
+
+  it("warn mode does not block but emits a warning", () => {
+    const registerTool = vi.fn();
+    const handlers = new Map<string, (...args: unknown[]) => unknown>();
+    const on = vi.fn((hookName: string, handler: (...args: unknown[]) => unknown) => {
+      handlers.set(hookName, handler);
+    });
+    const logger = { debug() {}, info() {}, warn: vi.fn(), error() {} };
+
+    register(createApi(registerTool, { pluginConfig: { enforcementMode: "warn" }, on, logger }));
+
+    const beforeModelResolve = handlers.get("before_model_resolve");
+    const beforeToolCall = handlers.get("before_tool_call");
+
+    beforeModelResolve?.({}, { sessionKey: "agent:main:test", agentId: "main" });
+    const res = beforeToolCall?.(
+      { toolName: "exec", params: {} },
+      { sessionKey: "agent:main:test", agentId: "main", toolName: "exec" },
+    );
+
+    expect(res).toBeUndefined();
+    expect(logger.warn).toHaveBeenCalledTimes(1);
   });
 });

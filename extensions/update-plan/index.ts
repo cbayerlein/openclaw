@@ -26,20 +26,27 @@ export default function register(api: OpenClawPluginApi) {
   });
 
   api.on("before_tool_call", (event, ctx) => {
+    if (enforcementMode === "off") {
+      return;
+    }
+
     const key = ctx.sessionKey ?? ctx.agentId ?? "default";
     if (event.toolName === "update_plan") {
       planningRequiredBySession.set(key, false);
       return;
     }
 
-    if (enforcementMode !== "off" && planningRequiredBySession.get(key)) {
-      const reason = "Call update_plan first for multi-step work, then continue with other tools.";
-      if (enforcementMode === "warn") {
-        api.logger.warn(`[update-plan] ${reason} blockedTool=${event.toolName} session=${key}`);
-      } else {
-        return { block: true, blockReason: reason };
-      }
+    if (!planningRequiredBySession.get(key)) {
+      return;
     }
+
+    const reason = "Call update_plan first for multi-step work, then continue with other tools.";
+    if (enforcementMode === "warn") {
+      api.logger.warn(`[update-plan] ${reason} blockedTool=${event.toolName} session=${key}`);
+      return;
+    }
+
+    return { block: true, blockReason: reason };
   });
 
   api.registerTool((ctx) => createUpdatePlanTool(api, ctx), { optional: true });
