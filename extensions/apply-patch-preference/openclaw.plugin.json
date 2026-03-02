@@ -1,0 +1,16 @@
+{
+  "id": "apply-patch-preference",
+  "name": "Apply Patch Preference",
+  "description": "Optional global guardrail to prefer apply_patch for patch-style file changes.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enforcementMode": {
+        "type": "string",
+        "enum": ["off", "warn", "block"],
+        "description": "Optional guardrail mode: off (default), warn, or block for edit and patch-style in-place exec usage."
+      }
+    }
+  }
+}
