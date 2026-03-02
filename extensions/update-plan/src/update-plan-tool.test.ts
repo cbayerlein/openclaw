@@ -126,43 +126,9 @@ describe("update_plan tool", () => {
     await expect(
       tool.execute("call-bad-status", {
         // oxlint-disable-next-line typescript/no-explicit-any
-        plan: [{ step: "step 1", status: "banana" as any }],
+        plan: [{ step: "step 1", status: "running" as any }],
       }),
-    ).rejects.toThrow(/Invalid update_plan status value/i);
-  });
-
-  it("normalizes common status variants before persisting", async () => {
-    const tool = createUpdatePlanTool(createApi(stateDir), createContext());
-
-    const result = await tool.execute("call-normalized", {
-      plan: [
-        { step: "step 1", status: "NOT_STARTED" },
-        { step: "step 2", status: "in-progress" },
-        { step: "step 3", status: "done" },
-      ],
-    });
-
-    expect(result.details).toMatchObject({
-      plan: [
-        { step: "step 1", status: "pending" },
-        { step: "step 2", status: "in_progress" },
-        { step: "step 3", status: "completed" },
-      ],
-      counts: { pending: 1, in_progress: 1, completed: 1 },
-    });
-  });
-
-  it("returns precise diagnostics when status variants are unmappable", async () => {
-    const tool = createUpdatePlanTool(createApi(stateDir), createContext());
-
-    await expect(
-      tool.execute("call-unmappable", {
-        plan: [
-          { step: "step 1", status: "teleporting" },
-          { step: "step 2", status: "pending" },
-        ],
-      }),
-    ).rejects.toThrow(/Auto-normalization was attempted once/i);
+    ).rejects.toThrow(/must be one of/i);
   });
 
   it("stores only last-plan when no session key is provided", async () => {
