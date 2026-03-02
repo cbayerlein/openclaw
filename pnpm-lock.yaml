@@ -17,6 +17,8 @@ overrides:
   tar: 7.5.9
   tough-cookie: 4.1.3
 
+packageExtensionsChecksum: sha256-02PGyLjfBtoUXGjBw6UxAqZGE5jZCWrrfDowsd+8HwI=
+
 importers:
 
   .:
@@ -7698,6 +7700,7 @@ snapshots:
       marked: 15.0.12
       minimatch: 10.2.4
       proper-lockfile: 4.1.2
+      strip-ansi: 7.2.0
       yaml: 2.8.2
     optionalDependencies:
       '@mariozechner/clipboard': 0.3.2
@@ -7728,6 +7731,7 @@ snapshots:
       marked: 15.0.12
       minimatch: 10.2.4
       proper-lockfile: 4.1.2
+      strip-ansi: 7.2.0
       yaml: 2.8.2
     optionalDependencies:
       '@mariozechner/clipboard': 0.3.2

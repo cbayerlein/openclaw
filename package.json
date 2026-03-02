@@ -248,6 +248,13 @@
   "packageManager": "pnpm@10.23.0",
   "pnpm": {
     "minimumReleaseAge": 2880,
+    "packageExtensions": {
+      "@mariozechner/pi-coding-agent@*": {
+        "dependencies": {
+          "strip-ansi": "^7.2.0"
+        }
+      }
+    },
     "overrides": {
       "hono": "4.11.10",
       "fast-xml-parser": "5.3.6",
