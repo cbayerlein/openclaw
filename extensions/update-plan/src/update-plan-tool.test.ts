@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { OpenClawPluginApi, OpenClawPluginToolContext } from "openclaw/plugin-sdk";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { OpenClawPluginApi, OpenClawPluginToolContext } from "../../../src/plugins/types.js";
 import { createUpdatePlanTool } from "./update-plan-tool.js";
 
 function createApi(stateDir: string): OpenClawPluginApi {
@@ -29,7 +29,7 @@ function createApi(stateDir: string): OpenClawPluginApi {
     registerService() {},
     registerProvider() {},
     registerCommand() {},
-    resolvePath: (value: string) => value,
+    resolvePath: (value) => value,
     on() {},
   } as unknown as OpenClawPluginApi;
 }
@@ -71,14 +71,9 @@ describe("update_plan tool", () => {
       ],
     });
 
-    const firstContent = result.content[0];
-    expect(firstContent?.type).toBe("text");
-    expect(firstContent && firstContent.type === "text" ? firstContent.text : "").toContain(
-      "Plan updated: 3 step(s)",
-    );
-    expect(firstContent && firstContent.type === "text" ? firstContent.text : "").toContain(
-      "- [in_progress] Implement update_plan tool",
-    );
+    expect(result.content[0]?.type).toBe("text");
+    expect(result.content[0]?.text).toContain("Plan updated: 3 step(s)");
+    expect(result.content[0]?.text).toContain("- [in_progress] Implement update_plan tool");
     expect(result.details).toMatchObject({
       counts: { pending: 1, in_progress: 1, completed: 1 },
     });
@@ -131,43 +126,9 @@ describe("update_plan tool", () => {
     await expect(
       tool.execute("call-bad-status", {
         // oxlint-disable-next-line typescript/no-explicit-any
-        plan: [{ step: "step 1", status: "banana" as any }],
+        plan: [{ step: "step 1", status: "running" as any }],
       }),
-    ).rejects.toThrow(/Invalid update_plan status value/i);
-  });
-
-  it("normalizes common status variants before persisting", async () => {
-    const tool = createUpdatePlanTool(createApi(stateDir), createContext());
-
-    const result = await tool.execute("call-normalized", {
-      plan: [
-        { step: "step 1", status: "NOT_STARTED" },
-        { step: "step 2", status: "in-progress" },
-        { step: "step 3", status: "done" },
-      ],
-    });
-
-    expect(result.details).toMatchObject({
-      plan: [
-        { step: "step 1", status: "pending" },
-        { step: "step 2", status: "in_progress" },
-        { step: "step 3", status: "completed" },
-      ],
-      counts: { pending: 1, in_progress: 1, completed: 1 },
-    });
-  });
-
-  it("returns precise diagnostics when status variants are unmappable", async () => {
-    const tool = createUpdatePlanTool(createApi(stateDir), createContext());
-
-    await expect(
-      tool.execute("call-unmappable", {
-        plan: [
-          { step: "step 1", status: "teleporting" },
-          { step: "step 2", status: "pending" },
-        ],
-      }),
-    ).rejects.toThrow(/Auto-normalization was attempted once/i);
+    ).rejects.toThrow(/must be one of/i);
   });
 
   it("stores only last-plan when no session key is provided", async () => {
