@@ -16,6 +16,8 @@ type UpdatePlanPayload = {
   plan: PlanStep[];
 };
 
+type NormalizePlanStatusResult = { ok: true; status: PlanStatus } | { ok: false; raw: string };
+
 type PersistedPlan = {
   updatedAt: string;
   explanation?: string;
@@ -34,11 +36,7 @@ const UPDATE_PLAN_PARAMETERS = Type.Object(
       Type.Object(
         {
           step: Type.String({ minLength: 1 }),
-          status: Type.Union([
-            Type.Literal("pending"),
-            Type.Literal("in_progress"),
-            Type.Literal("completed"),
-          ]),
+          status: Type.String({ minLength: 1 }),
         },
         { additionalProperties: false },
       ),
@@ -46,6 +44,42 @@ const UPDATE_PLAN_PARAMETERS = Type.Object(
   },
   { additionalProperties: false },
 );
+
+const PLAN_STATUS_ALIASES: Readonly<Record<string, PlanStatus>> = {
+  // pending
+  pending: "pending",
+  "not started": "pending",
+  not_started: "pending",
+  "not-started": "pending",
+  todo: "pending",
+  "to do": "pending",
+  to_do: "pending",
+  planned: "pending",
+  plan: "pending",
+  queued: "pending",
+  next: "pending",
+
+  // in_progress
+  in_progress: "in_progress",
+  "in progress": "in_progress",
+  "in-progress": "in_progress",
+  inprogress: "in_progress",
+  doing: "in_progress",
+  active: "in_progress",
+  working: "in_progress",
+  running: "in_progress",
+  wip: "in_progress",
+  ongoing: "in_progress",
+
+  // completed
+  completed: "completed",
+  done: "completed",
+  finished: "completed",
+  complete: "completed",
+  success: "completed",
+  resolved: "completed",
+  closed: "completed",
+};
 
 function sanitizePathSegment(value: string): string {
   const normalized = value
@@ -64,6 +98,36 @@ function isPlanStatus(value: unknown): value is PlanStatus {
   return typeof value === "string" && STATUS_VALUES.includes(value as PlanStatus);
 }
 
+function canonicalizeStatusKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+function normalizePlanStatus(value: unknown): NormalizePlanStatusResult {
+  if (isPlanStatus(value)) {
+    return { ok: true, status: value };
+  }
+
+  if (typeof value !== "string") {
+    return { ok: false, raw: String(value) };
+  }
+
+  const raw = value.trim();
+  const direct = PLAN_STATUS_ALIASES[raw.toLowerCase()];
+  if (direct) {
+    return { ok: true, status: direct };
+  }
+
+  const canonical = PLAN_STATUS_ALIASES[canonicalizeStatusKey(raw)];
+  if (canonical) {
+    return { ok: true, status: canonical };
+  }
+
+  return { ok: false, raw };
+}
+
 function normalizePayload(raw: Record<string, unknown>): UpdatePlanPayload {
   const explanation =
     typeof raw.explanation === "string" && raw.explanation.trim().length > 0
@@ -74,6 +138,8 @@ function normalizePayload(raw: Record<string, unknown>): UpdatePlanPayload {
     throw new ToolInputError("plan must be an array");
   }
 
+  const invalidStatuses: Array<{ index: number; raw: string }> = [];
+
   const plan = raw.plan.map((entry, index) => {
     if (!isRecord(entry)) {
       throw new ToolInputError(`plan[${index}] must be an object`);
@@ -82,11 +148,20 @@ function normalizePayload(raw: Record<string, unknown>): UpdatePlanPayload {
     if (!step) {
       throw new ToolInputError(`plan[${index}].step must be a non-empty string`);
     }
-    if (!isPlanStatus(entry.status)) {
-      throw new ToolInputError(`plan[${index}].status must be one of: ${STATUS_VALUES.join(", ")}`);
+    const normalizedStatus = normalizePlanStatus(entry.status);
+    if (!normalizedStatus.ok) {
+      invalidStatuses.push({ index, raw: normalizedStatus.raw });
+      return { step, status: "pending" as PlanStatus };
     }
-    return { step, status: entry.status };
+    return { step, status: normalizedStatus.status };
   });
+
+  if (invalidStatuses.length > 0) {
+    const seen = invalidStatuses.map((entry) => `plan[${entry.index}]='${entry.raw}'`).join(", ");
+    throw new ToolInputError(
+      `Invalid update_plan status value(s): ${seen}. Expected one of: ${STATUS_VALUES.join(", ")}. Auto-normalization was attempted once for common variants (e.g. IN_PROGRESS, not_started, done).`,
+    );
+  }
 
   const inProgressCount = plan.filter((step) => step.status === "in_progress").length;
   if (inProgressCount > 1) {
