@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { OpenClawPluginApi, OpenClawPluginToolContext } from "openclaw/plugin-sdk";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { OpenClawPluginApi, OpenClawPluginToolContext } from "../../../src/plugins/types.js";
 import { createUpdatePlanTool } from "./update-plan-tool.js";
 
 function createApi(stateDir: string): OpenClawPluginApi {
@@ -29,7 +29,7 @@ function createApi(stateDir: string): OpenClawPluginApi {
     registerService() {},
     registerProvider() {},
     registerCommand() {},
-    resolvePath: (value) => value,
+    resolvePath: (value: string) => value,
     on() {},
   } as unknown as OpenClawPluginApi;
 }
@@ -71,9 +71,14 @@ describe("update_plan tool", () => {
       ],
     });
 
-    expect(result.content[0]?.type).toBe("text");
-    expect(result.content[0]?.text).toContain("Plan updated: 3 step(s)");
-    expect(result.content[0]?.text).toContain("- [in_progress] Implement update_plan tool");
+    const firstContent = result.content[0];
+    expect(firstContent?.type).toBe("text");
+    expect(firstContent && firstContent.type === "text" ? firstContent.text : "").toContain(
+      "Plan updated: 3 step(s)",
+    );
+    expect(firstContent && firstContent.type === "text" ? firstContent.text : "").toContain(
+      "- [in_progress] Implement update_plan tool",
+    );
     expect(result.details).toMatchObject({
       counts: { pending: 1, in_progress: 1, completed: 1 },
     });
