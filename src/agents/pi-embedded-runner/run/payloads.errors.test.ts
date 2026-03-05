@@ -218,7 +218,7 @@ describe("buildEmbeddedRunPayloads", () => {
       lastToolError: { toolName: "browser", error: "tab not found" },
     });
 
-    expectSinglePayloadText(payloads, "All good");
+    expect(payloads).toHaveLength(0);
     expect(warnings).toHaveLength(0);
   });
 
