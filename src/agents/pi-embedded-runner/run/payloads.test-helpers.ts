@@ -2,7 +2,8 @@ import { expect } from "vitest";
 import { buildEmbeddedRunPayloads } from "./payloads.js";
 
 export type BuildPayloadParams = Parameters<typeof buildEmbeddedRunPayloads>[0];
-type RunPayloads = ReturnType<typeof buildEmbeddedRunPayloads>;
+type RunPayloads = ReturnType<typeof buildEmbeddedRunPayloads>["payloads"];
+type WarningPayloads = ReturnType<typeof buildEmbeddedRunPayloads>["warnings"];
 
 export function buildPayloads(overrides: Partial<BuildPayloadParams> = {}) {
   return buildEmbeddedRunPayloads({
@@ -15,7 +16,21 @@ export function buildPayloads(overrides: Partial<BuildPayloadParams> = {}) {
     reasoningLevel: "off",
     toolResultFormat: "plain",
     ...overrides,
-  });
+  }).payloads;
+}
+
+export function buildWarnings(overrides: Partial<BuildPayloadParams> = {}) {
+  return buildEmbeddedRunPayloads({
+    assistantTexts: [],
+    toolMetas: [],
+    lastAssistant: undefined,
+    sessionKey: "session:telegram",
+    inlineToolResultsAllowed: false,
+    verboseLevel: "off",
+    reasoningLevel: "off",
+    toolResultFormat: "plain",
+    ...overrides,
+  }).warnings;
 }
 
 export function expectSinglePayloadText(
@@ -42,5 +57,19 @@ export function expectSingleToolErrorPayload(
   }
   if (typeof params.absentDetail === "string") {
     expect(payloads[0]?.text).not.toContain(params.absentDetail);
+  }
+}
+
+export function expectSingleToolErrorWarning(
+  warnings: WarningPayloads,
+  params: { title: string; detail?: string; absentDetail?: string },
+): void {
+  expect(warnings).toHaveLength(1);
+  expect(warnings[0]?.text).toContain(params.title);
+  if (typeof params.detail === "string") {
+    expect(warnings[0]?.text).toContain(params.detail);
+  }
+  if (typeof params.absentDetail === "string") {
+    expect(warnings[0]?.text).not.toContain(params.absentDetail);
   }
 }

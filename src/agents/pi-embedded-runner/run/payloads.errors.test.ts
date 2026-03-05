@@ -2,6 +2,7 @@ import type { AssistantMessage } from "@mariozechner/pi-ai";
 import { describe, expect, it } from "vitest";
 import { formatBillingErrorMessage } from "../../pi-embedded-helpers.js";
 import { buildEmbeddedRunPayloads } from "./payloads.js";
+import { expectSinglePayloadText } from "./payloads.test-helpers.js";
 
 describe("buildEmbeddedRunPayloads", () => {
   const OVERLOADED_FALLBACK_TEXT =
@@ -42,6 +43,12 @@ describe("buildEmbeddedRunPayloads", () => {
     content: [{ type: "text", text: errorJson }],
     ...overrides,
   });
+  const makeStoppedAssistant = (): AssistantMessage =>
+    makeAssistant({
+      stopReason: "stop",
+      errorMessage: undefined,
+      content: [],
+    });
 
   type BuildPayloadParams = Parameters<typeof buildEmbeddedRunPayloads>[0];
   const buildPayloadResult = (overrides: Partial<BuildPayloadParams> = {}) =>
@@ -108,7 +115,7 @@ describe("buildEmbeddedRunPayloads", () => {
     });
 
     expect(payloads).toHaveLength(1);
-    expect(payloads[0]?.text).toBe(formatBillingErrorMessage("Anthropic"));
+    expect(payloads[0]?.text).toBe(formatBillingErrorMessage("Anthropic", "test-model"));
     expect(payloads[0]?.isError).toBe(true);
   });
 
@@ -182,8 +189,7 @@ describe("buildEmbeddedRunPayloads", () => {
       lastToolError: { toolName: "browser", error: "tab not found" },
     });
 
-    expect(payloads).toHaveLength(1);
-    expect(payloads[0]?.text).toBe("All good");
+    expect(payloads).toHaveLength(0);
     expect(warnings).toHaveLength(0);
   });
 
@@ -291,12 +297,12 @@ describe("buildEmbeddedRunPayloads", () => {
   it("emits mutating tool warnings even when assistant output exists", () => {
     const payloads = buildPayloads({
       assistantTexts: ["Done."],
-      lastAssistant: { stopReason: "end_turn" } as AssistantMessage,
+      lastAssistant: makeStoppedAssistant(),
       lastToolError: { toolName: "write", error: "file missing" },
     });
     const warnings = buildWarnings({
       assistantTexts: ["Done."],
-      lastAssistant: { stopReason: "end_turn" } as AssistantMessage,
+      lastAssistant: makeStoppedAssistant(),
       lastToolError: { toolName: "write", error: "file missing" },
     });
 
@@ -309,7 +315,7 @@ describe("buildEmbeddedRunPayloads", () => {
   it("does not treat session_status read failures as mutating when explicitly flagged", () => {
     const payloads = buildPayloads({
       assistantTexts: ["Status loaded."],
-      lastAssistant: { stopReason: "end_turn" } as AssistantMessage,
+      lastAssistant: makeStoppedAssistant(),
       lastToolError: {
         toolName: "session_status",
         error: "model required",
@@ -318,7 +324,7 @@ describe("buildEmbeddedRunPayloads", () => {
     });
     const warnings = buildWarnings({
       assistantTexts: ["Status loaded."],
-      lastAssistant: { stopReason: "end_turn" } as AssistantMessage,
+      lastAssistant: makeStoppedAssistant(),
       lastToolError: {
         toolName: "session_status",
         error: "model required",
@@ -344,7 +350,7 @@ describe("buildEmbeddedRunPayloads", () => {
 
     const warnings = buildWarnings({
       assistantTexts: [warningText ?? ""],
-      lastAssistant: { stopReason: "end_turn" } as AssistantMessage,
+      lastAssistant: makeStoppedAssistant(),
       lastToolError: {
         toolName: "write",
         error: "file missing",
