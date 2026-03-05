@@ -1,0 +1,12 @@
+{
+  "id": "runs-api",
+  "name": "Runs API (MVP)",
+  "description": "MVP scaffolding for an official /v1/runs + /v1/runs/{id}/events API (disabled by default).",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": { "type": "boolean" }
+    }
+  }
+}
