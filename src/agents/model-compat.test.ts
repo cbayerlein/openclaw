@@ -196,6 +196,16 @@ describe("isModernModelRef", () => {
 });
 
 describe("resolveForwardCompatModel", () => {
+  it("resolves openai-codex gpt-5.4 via codex template", () => {
+    const registry = createRegistry({
+      "openai-codex/gpt-5.2-codex": createTemplateModel("openai-codex", "gpt-5.2-codex"),
+    });
+    const model = resolveForwardCompatModel("openai-codex", "gpt-5.4", registry);
+    expect(model?.id).toBe("gpt-5.4");
+    expect(model?.name).toBe("gpt-5.4");
+    expect(model?.provider).toBe("openai-codex");
+  });
+
   it("resolves anthropic opus 4.6 via 4.5 template", () => {
     const registry = createRegistry({
       "anthropic/claude-opus-4-5": createTemplateModel("anthropic", "claude-opus-4-5"),
