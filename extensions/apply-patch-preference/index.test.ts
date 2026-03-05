@@ -1,5 +1,9 @@
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { describe, expect, it, vi } from "vitest";
+import type {
+  OpenClawPluginApi,
+  PluginHookHandlerMap,
+  PluginHookName,
+} from "../../src/plugins/types.js";
 import register from "./index.js";
 
 function createApi(
@@ -32,21 +36,23 @@ function createApi(
     registerService() {},
     registerProvider() {},
     registerCommand() {},
-    resolvePath: (value) => value,
+    resolvePath: (value: string) => value,
     on: opts.on ?? (() => {}),
   } as unknown as OpenClawPluginApi;
 }
 
 describe("apply-patch-preference plugin", () => {
   it("block mode blocks edit and sed -i, but allows write and normal exec", () => {
-    const handlers = new Map<string, (...args: unknown[]) => unknown>();
-    const on = vi.fn((hookName: string, handler: (...args: unknown[]) => unknown) => {
+    const handlers = new Map<PluginHookName, PluginHookHandlerMap[PluginHookName]>();
+    const on: OpenClawPluginApi["on"] = (hookName, handler) => {
       handlers.set(hookName, handler);
-    });
+    };
 
     register(createApi({ pluginConfig: { enforcementMode: "block" }, on }));
 
-    const beforeToolCall = handlers.get("before_tool_call");
+    const beforeToolCall = handlers.get("before_tool_call") as
+      | PluginHookHandlerMap["before_tool_call"]
+      | undefined;
     expect(beforeToolCall).toBeTypeOf("function");
 
     const blockedEdit = beforeToolCall?.(
@@ -75,14 +81,16 @@ describe("apply-patch-preference plugin", () => {
   });
 
   it("warn mode warns without blocking", () => {
-    const handlers = new Map<string, (...args: unknown[]) => unknown>();
-    const on = vi.fn((hookName: string, handler: (...args: unknown[]) => unknown) => {
+    const handlers = new Map<PluginHookName, PluginHookHandlerMap[PluginHookName]>();
+    const on: OpenClawPluginApi["on"] = (hookName, handler) => {
       handlers.set(hookName, handler);
-    });
+    };
     const logger = { debug() {}, info() {}, warn: vi.fn(), error() {} };
 
     register(createApi({ pluginConfig: { enforcementMode: "warn" }, on, logger }));
-    const beforeToolCall = handlers.get("before_tool_call");
+    const beforeToolCall = handlers.get("before_tool_call") as
+      | PluginHookHandlerMap["before_tool_call"]
+      | undefined;
 
     const res = beforeToolCall?.(
       { toolName: "edit", params: { file_path: "/tmp/a.ts", old_string: "a", new_string: "b" } },
