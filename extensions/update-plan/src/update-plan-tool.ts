@@ -1,8 +1,12 @@
 import path from "node:path";
 import { Type } from "@sinclair/typebox";
-import type { OpenClawPluginApi, OpenClawPluginToolContext } from "openclaw/plugin-sdk";
 import { writeJsonFileAtomically } from "openclaw/plugin-sdk";
 import { ToolInputError } from "../../../src/agents/tools/common.js";
+import type {
+  AnyAgentTool,
+  OpenClawPluginApi,
+  OpenClawPluginToolContext,
+} from "../../../src/plugins/types.js";
 
 type PlanStatus = "pending" | "in_progress" | "completed";
 
@@ -234,9 +238,13 @@ async function persistPlan(
   return { lastPlanPath, sessionPath };
 }
 
-export function createUpdatePlanTool(api: OpenClawPluginApi, ctx: OpenClawPluginToolContext) {
+export function createUpdatePlanTool(
+  api: OpenClawPluginApi,
+  ctx: OpenClawPluginToolContext,
+): AnyAgentTool {
   return {
     name: "update_plan",
+    label: "Update Plan",
     description: "Update a concise multi-step execution plan and persist the latest plan locally.",
     parameters: UPDATE_PLAN_PARAMETERS,
     async execute(_id: string, params: Record<string, unknown>) {
@@ -245,7 +253,7 @@ export function createUpdatePlanTool(api: OpenClawPluginApi, ctx: OpenClawPlugin
       const summary = summarizePlan(payload);
 
       return {
-        content: [{ type: "text", text: summary.text }],
+        content: [{ type: "text" as const, text: summary.text }],
         details: {
           explanation: payload.explanation,
           plan: payload.plan,
