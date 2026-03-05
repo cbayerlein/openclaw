@@ -1,37 +1,40 @@
-import { describe, expect, it } from "vitest";
-import { buildPayloads, expectSingleToolErrorPayload } from "./payloads.test-helpers.js";
+import { describe, it } from "vitest";
+import { buildWarnings, expectSingleToolErrorWarning } from "./payloads.test-helpers.js";
 
 describe("buildEmbeddedRunPayloads tool-error warnings", () => {
-  it("suppresses exec tool errors when verbose mode is off", () => {
-    const payloads = buildPayloads({
+  it("keeps exec tool errors as warnings even when verbose mode is off", () => {
+    const warnings = buildWarnings({
       lastToolError: { toolName: "exec", error: "command failed" },
       verboseLevel: "off",
     });
 
-    expect(payloads).toHaveLength(0);
+    expectSingleToolErrorWarning(warnings, {
+      title: "Exec",
+      detail: "command failed",
+    });
   });
 
   it("shows exec tool errors when verbose mode is on", () => {
-    const payloads = buildPayloads({
+    const warnings = buildWarnings({
       lastToolError: { toolName: "exec", error: "command failed" },
       verboseLevel: "on",
     });
 
-    expectSingleToolErrorPayload(payloads, {
+    expectSingleToolErrorWarning(warnings, {
       title: "Exec",
       detail: "command failed",
     });
   });
 
   it("keeps non-exec mutating tool failures visible", () => {
-    const payloads = buildPayloads({
+    const warnings = buildWarnings({
       lastToolError: { toolName: "write", error: "permission denied" },
       verboseLevel: "off",
     });
 
-    expectSingleToolErrorPayload(payloads, {
+    expectSingleToolErrorWarning(warnings, {
       title: "Write",
-      absentDetail: "permission denied",
+      detail: "permission denied",
     });
   });
 
@@ -49,29 +52,32 @@ describe("buildEmbeddedRunPayloads tool-error warnings", () => {
       absentDetail: undefined,
     },
   ])("$name", ({ verboseLevel, detail, absentDetail }) => {
-    const payloads = buildPayloads({
+    const warnings = buildWarnings({
       lastToolError: { toolName: "write", error: "permission denied" },
       verboseLevel,
     });
 
-    expectSingleToolErrorPayload(payloads, {
+    expectSingleToolErrorWarning(warnings, {
       title: "Write",
       detail,
       absentDetail,
     });
   });
 
-  it("suppresses sessions_send errors to avoid leaking transient relay failures", () => {
-    const payloads = buildPayloads({
+  it("emits sessions_send errors as warnings when no user-facing reply exists", () => {
+    const warnings = buildWarnings({
       lastToolError: { toolName: "sessions_send", error: "delivery timeout" },
       verboseLevel: "on",
     });
 
-    expect(payloads).toHaveLength(0);
+    expectSingleToolErrorWarning(warnings, {
+      title: "Session Send",
+      detail: "delivery timeout",
+    });
   });
 
-  it("suppresses sessions_send errors even when marked mutating", () => {
-    const payloads = buildPayloads({
+  it("emits sessions_send errors even when marked mutating", () => {
+    const warnings = buildWarnings({
       lastToolError: {
         toolName: "sessions_send",
         error: "delivery timeout",
@@ -80,6 +86,9 @@ describe("buildEmbeddedRunPayloads tool-error warnings", () => {
       verboseLevel: "on",
     });
 
-    expect(payloads).toHaveLength(0);
+    expectSingleToolErrorWarning(warnings, {
+      title: "Session Send",
+      detail: "delivery timeout",
+    });
   });
 });
