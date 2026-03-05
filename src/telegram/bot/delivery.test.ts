@@ -83,6 +83,12 @@ function createThreadNotFoundError(operation = "sendMessage") {
   );
 }
 
+function createReplyTargetNotFoundError(operation = "sendMessage") {
+  return new Error(
+    `GrammyError: Call to '${operation}' failed! (400: Bad Request: message to be replied not found)`,
+  );
+}
+
 function createVoiceFailureHarness(params: {
   voiceError: Error;
   sendMessageResult?: { message_id: number; chat: { id: string } };
@@ -277,6 +283,32 @@ describe("deliverReplies", () => {
     expect(runtime.error).toHaveBeenCalledTimes(1);
   });
 
+  it("retries text sends without reply_to_message_id when reply target is missing", async () => {
+    const runtime = createRuntime();
+    const sendMessage = vi
+      .fn()
+      .mockRejectedValueOnce(createReplyTargetNotFoundError("sendMessage"))
+      .mockResolvedValueOnce({
+        message_id: 71,
+        chat: { id: "123" },
+      });
+    const bot = createBot({ sendMessage });
+
+    await deliverWith({
+      replies: [{ text: "hello", replyToId: "777" }],
+      runtime,
+      bot,
+      replyToMode: "all",
+    });
+
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(sendMessage.mock.calls[0]?.[2]).toEqual(
+      expect.objectContaining({ reply_to_message_id: 777 }),
+    );
+    expect(sendMessage.mock.calls[1]?.[2]).not.toHaveProperty("reply_to_message_id");
+    expect(runtime.error).not.toHaveBeenCalled();
+  });
+
   it("retries media sends without message_thread_id for DM topics", async () => {
     const runtime = createRuntime();
     const sendPhoto = vi
@@ -304,6 +336,34 @@ describe("deliverReplies", () => {
       }),
     );
     expect(sendPhoto.mock.calls[1]?.[2]).not.toHaveProperty("message_thread_id");
+    expect(runtime.error).not.toHaveBeenCalled();
+  });
+
+  it("retries media sends without reply_to_message_id when reply target is missing", async () => {
+    const runtime = createRuntime();
+    const sendPhoto = vi
+      .fn()
+      .mockRejectedValueOnce(createReplyTargetNotFoundError("sendPhoto"))
+      .mockResolvedValueOnce({
+        message_id: 81,
+        chat: { id: "123" },
+      });
+    const bot = createBot({ sendPhoto });
+
+    mockMediaLoad("photo.jpg", "image/jpeg", "image");
+
+    await deliverWith({
+      replies: [{ mediaUrl: "https://example.com/photo.jpg", text: "caption", replyToId: "912" }],
+      runtime,
+      bot,
+      replyToMode: "all",
+    });
+
+    expect(sendPhoto).toHaveBeenCalledTimes(2);
+    expect(sendPhoto.mock.calls[0]?.[2]).toEqual(
+      expect.objectContaining({ reply_to_message_id: 912 }),
+    );
+    expect(sendPhoto.mock.calls[1]?.[2]).not.toHaveProperty("reply_to_message_id");
     expect(runtime.error).not.toHaveBeenCalled();
   });
 
