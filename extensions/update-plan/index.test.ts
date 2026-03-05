@@ -1,5 +1,10 @@
-import type { OpenClawPluginApi, OpenClawPluginToolContext } from "openclaw/plugin-sdk";
 import { describe, expect, it, vi } from "vitest";
+import type {
+  OpenClawPluginApi,
+  OpenClawPluginToolContext,
+  PluginHookHandlerMap,
+  PluginHookName,
+} from "../../src/plugins/types.js";
 import register from "./index.js";
 
 function createApi(
@@ -33,7 +38,7 @@ function createApi(
     registerService() {},
     registerProvider() {},
     registerCommand() {},
-    resolvePath: (value) => value,
+    resolvePath: (value: string) => value,
     on: opts.on ?? (() => {}),
   } as unknown as OpenClawPluginApi;
 }
@@ -60,20 +65,27 @@ describe("update-plan plugin registration", () => {
 
   it("blocks non-update_plan tool calls in block mode until update_plan is called", () => {
     const registerTool = vi.fn();
-    const handlers = new Map<string, (...args: unknown[]) => unknown>();
-    const on = vi.fn((hookName: string, handler: (...args: unknown[]) => unknown) => {
+    const handlers = new Map<PluginHookName, PluginHookHandlerMap[PluginHookName]>();
+    const on: OpenClawPluginApi["on"] = (hookName, handler) => {
       handlers.set(hookName, handler);
-    });
+    };
 
     register(createApi(registerTool, { pluginConfig: { enforcementMode: "block" }, on }));
 
-    const beforeModelResolve = handlers.get("before_model_resolve");
-    const beforeToolCall = handlers.get("before_tool_call");
+    const beforeModelResolve = handlers.get("before_model_resolve") as
+      | PluginHookHandlerMap["before_model_resolve"]
+      | undefined;
+    const beforeToolCall = handlers.get("before_tool_call") as
+      | PluginHookHandlerMap["before_tool_call"]
+      | undefined;
 
     expect(beforeModelResolve).toBeTypeOf("function");
     expect(beforeToolCall).toBeTypeOf("function");
 
-    beforeModelResolve?.({}, { sessionKey: "agent:main:test", agentId: "main" });
+    beforeModelResolve?.(
+      { prompt: "test prompt" },
+      { sessionKey: "agent:main:test", agentId: "main" },
+    );
     const blocked = beforeToolCall?.(
       { toolName: "read", params: {} },
       { sessionKey: "agent:main:test", agentId: "main", toolName: "read" },
@@ -94,18 +106,25 @@ describe("update-plan plugin registration", () => {
 
   it("warn mode does not block but emits a warning", () => {
     const registerTool = vi.fn();
-    const handlers = new Map<string, (...args: unknown[]) => unknown>();
-    const on = vi.fn((hookName: string, handler: (...args: unknown[]) => unknown) => {
+    const handlers = new Map<PluginHookName, PluginHookHandlerMap[PluginHookName]>();
+    const on: OpenClawPluginApi["on"] = (hookName, handler) => {
       handlers.set(hookName, handler);
-    });
+    };
     const logger = { debug() {}, info() {}, warn: vi.fn(), error() {} };
 
     register(createApi(registerTool, { pluginConfig: { enforcementMode: "warn" }, on, logger }));
 
-    const beforeModelResolve = handlers.get("before_model_resolve");
-    const beforeToolCall = handlers.get("before_tool_call");
+    const beforeModelResolve = handlers.get("before_model_resolve") as
+      | PluginHookHandlerMap["before_model_resolve"]
+      | undefined;
+    const beforeToolCall = handlers.get("before_tool_call") as
+      | PluginHookHandlerMap["before_tool_call"]
+      | undefined;
 
-    beforeModelResolve?.({}, { sessionKey: "agent:main:test", agentId: "main" });
+    beforeModelResolve?.(
+      { prompt: "test prompt" },
+      { sessionKey: "agent:main:test", agentId: "main" },
+    );
     const res = beforeToolCall?.(
       { toolName: "exec", params: {} },
       { sessionKey: "agent:main:test", agentId: "main", toolName: "exec" },
