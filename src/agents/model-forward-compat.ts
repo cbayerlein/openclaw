@@ -16,6 +16,7 @@ const OPENAI_CODEX_GPT_54_CONTEXT_TOKENS = 1_050_000;
 const OPENAI_CODEX_GPT_54_MAX_TOKENS = 128_000;
 const OPENAI_CODEX_GPT_54_TEMPLATE_MODEL_IDS = ["gpt-5.3-codex", "gpt-5.2-codex"] as const;
 const OPENAI_CODEX_GPT_53_MODEL_ID = "gpt-5.3-codex";
+const OPENAI_CODEX_GPT_54_CODEX_MODEL_ID = "gpt-5.4-codex";
 const OPENAI_CODEX_TEMPLATE_MODEL_IDS = ["gpt-5.2-codex"] as const;
 
 const ANTHROPIC_OPUS_46_MODEL_ID = "claude-opus-4-6";
@@ -122,23 +123,41 @@ function resolveOpenAICodexForwardCompatModel(
   const normalizedProvider = normalizeProviderId(provider);
   const trimmedModelId = modelId.trim();
   const lower = trimmedModelId.toLowerCase();
-
-  let templateIds: readonly string[];
-  let eligibleProviders: Set<string>;
-  let patch: Partial<Model<Api>> | undefined;
-  if (lower === OPENAI_CODEX_GPT_54_MODEL_ID) {
-    templateIds = OPENAI_CODEX_GPT_54_TEMPLATE_MODEL_IDS;
-    eligibleProviders = CODEX_GPT54_ELIGIBLE_PROVIDERS;
-    patch = {
-      contextWindow: OPENAI_CODEX_GPT_54_CONTEXT_TOKENS,
-      maxTokens: OPENAI_CODEX_GPT_54_MAX_TOKENS,
-    };
-  } else if (lower === OPENAI_CODEX_GPT_53_MODEL_ID) {
-    templateIds = OPENAI_CODEX_TEMPLATE_MODEL_IDS;
-    eligibleProviders = CODEX_GPT53_ELIGIBLE_PROVIDERS;
-  } else {
+  const isForwardCompatCodexModel =
+    lower === OPENAI_CODEX_GPT_53_MODEL_ID ||
+    lower === OPENAI_CODEX_GPT_54_CODEX_MODEL_ID ||
+    lower.startsWith(`${OPENAI_CODEX_GPT_54_MODEL_ID}-`) ||
+    lower.startsWith(`${OPENAI_CODEX_GPT_54_CODEX_MODEL_ID}-`) ||
+    lower === OPENAI_CODEX_GPT_54_MODEL_ID;
+  if (!isForwardCompatCodexModel) {
     return undefined;
   }
+  const templateIds: readonly string[] =
+    lower === OPENAI_CODEX_GPT_54_MODEL_ID || lower === OPENAI_CODEX_GPT_54_CODEX_MODEL_ID
+      ? OPENAI_CODEX_GPT_54_TEMPLATE_MODEL_IDS
+      : lower === OPENAI_CODEX_GPT_53_MODEL_ID
+        ? OPENAI_CODEX_TEMPLATE_MODEL_IDS
+        : lower.startsWith(`${OPENAI_CODEX_GPT_54_CODEX_MODEL_ID}-`) ||
+            lower.startsWith(`${OPENAI_CODEX_GPT_54_MODEL_ID}-`)
+          ? OPENAI_CODEX_GPT_54_TEMPLATE_MODEL_IDS
+          : OPENAI_CODEX_TEMPLATE_MODEL_IDS;
+  const eligibleProviders =
+    lower.startsWith(`${OPENAI_CODEX_GPT_54_MODEL_ID}-`) ||
+    lower === OPENAI_CODEX_GPT_54_MODEL_ID ||
+    lower === OPENAI_CODEX_GPT_54_CODEX_MODEL_ID ||
+    lower.startsWith(`${OPENAI_CODEX_GPT_54_CODEX_MODEL_ID}-`)
+      ? CODEX_GPT54_ELIGIBLE_PROVIDERS
+      : CODEX_GPT53_ELIGIBLE_PROVIDERS;
+  const patch: Partial<Model<Api>> | undefined =
+    lower === OPENAI_CODEX_GPT_54_MODEL_ID ||
+    lower === OPENAI_CODEX_GPT_54_CODEX_MODEL_ID ||
+    lower.startsWith(`${OPENAI_CODEX_GPT_54_MODEL_ID}-`) ||
+    lower.startsWith(`${OPENAI_CODEX_GPT_54_CODEX_MODEL_ID}-`)
+      ? {
+          contextWindow: OPENAI_CODEX_GPT_54_CONTEXT_TOKENS,
+          maxTokens: OPENAI_CODEX_GPT_54_MAX_TOKENS,
+        }
+      : undefined;
 
   if (!eligibleProviders.has(normalizedProvider)) {
     return undefined;
