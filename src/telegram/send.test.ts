@@ -1064,6 +1064,73 @@ describe("sendMessageTelegram", () => {
     }
   });
 
+  it("retries sends without reply target on message-to-be-replied-not-found", async () => {
+    const chatId = "-100123";
+    const replyErr = new Error("400: Bad Request: message to be replied not found");
+    const sendMessage = vi
+      .fn()
+      .mockRejectedValueOnce(replyErr)
+      .mockResolvedValueOnce({
+        message_id: 60,
+        chat: { id: chatId },
+      });
+    const api = { sendMessage } as unknown as {
+      sendMessage: typeof sendMessage;
+    };
+
+    const res = await sendMessageTelegram(chatId, "hello forum", {
+      token: "tok",
+      api,
+      messageThreadId: 271,
+      replyToMessageId: 500,
+    });
+
+    expect(sendMessage).toHaveBeenNthCalledWith(1, chatId, "hello forum", {
+      parse_mode: "HTML",
+      message_thread_id: 271,
+      reply_to_message_id: 500,
+    });
+    expect(sendMessage).toHaveBeenNthCalledWith(2, chatId, "hello forum", {
+      parse_mode: "HTML",
+      message_thread_id: 271,
+    });
+    expect(res.messageId).toBe("60");
+  });
+
+  it("retries sends without reply_parameters when reply target is missing", async () => {
+    const chatId = "123456789";
+    const replyErr = new Error("400: Bad Request: message to be replied not found");
+    const sendMessage = vi
+      .fn()
+      .mockRejectedValueOnce(replyErr)
+      .mockResolvedValueOnce({
+        message_id: 61,
+        chat: { id: chatId },
+      });
+    const api = { sendMessage } as unknown as {
+      sendMessage: typeof sendMessage;
+    };
+
+    const res = await sendMessageTelegram(chatId, "quoted answer", {
+      token: "tok",
+      api,
+      replyToMessageId: 500,
+      quoteText: "snippet",
+    });
+
+    expect(sendMessage).toHaveBeenNthCalledWith(1, chatId, "quoted answer", {
+      parse_mode: "HTML",
+      reply_parameters: {
+        message_id: 500,
+        quote: "snippet",
+      },
+    });
+    expect(sendMessage).toHaveBeenNthCalledWith(2, chatId, "quoted answer", {
+      parse_mode: "HTML",
+    });
+    expect(res.messageId).toBe("61");
+  });
+
   it("does not retry on non-retriable thread/chat errors", async () => {
     const cases: Array<{
       chatId: string;
