@@ -67,6 +67,33 @@ export type ToolWarningsConfig = {
   dedupeWindowMs?: number;
 };
 
+export type StatusReactionsTimingConfig = {
+  debounceMs?: number;
+  stallSoftMs?: number;
+  stallHardMs?: number;
+  doneHoldMs?: number;
+  errorHoldMs?: number;
+};
+
+export type StatusReactionsEmojiConfig = {
+  queued?: string;
+  thinking?: string;
+  tool?: string;
+  coding?: string;
+  web?: string;
+  done?: string;
+  error?: string;
+  stallSoft?: string;
+  stallHard?: string;
+};
+
+export type StatusReactionsConfig = {
+  enabled?: boolean;
+  emojis?: StatusReactionsEmojiConfig;
+  timing?: StatusReactionsTimingConfig;
+  clearOnReply?: boolean;
+};
+
 export type MessagesConfig = {
   /** @deprecated Use `whatsapp.messagePrefix` (WhatsApp-only inbound prefix). */
   messagePrefix?: string;

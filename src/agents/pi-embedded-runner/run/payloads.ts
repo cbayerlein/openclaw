@@ -30,6 +30,9 @@ type LastToolError = {
   mutatingAction?: boolean;
   actionFingerprint?: string;
 };
+type ToolErrorWarningPolicy = {
+  includeDetails: boolean;
+};
 
 const RECOVERABLE_TOOL_ERROR_KEYWORDS = [
   "required",
@@ -58,20 +61,21 @@ function shouldEmitToolWarningEvent(params: {
   lastToolError: LastToolError;
   hasUserFacingReply: boolean;
   suppressToolErrors: boolean;
-}): { shouldEmit: boolean; isMutating: boolean } {
+}): { shouldEmit: boolean; isMutating: boolean; policy: ToolErrorWarningPolicy } {
   const normalizedTool = params.lastToolError.toolName.trim().toLowerCase();
   const isExecLike = normalizedTool === "exec" || normalizedTool === "bash";
   const isMutating =
     params.lastToolError.mutatingAction ?? isLikelyMutatingToolName(params.lastToolError.toolName);
   if (isMutating || isExecLike) {
-    return { shouldEmit: true, isMutating };
+    return { shouldEmit: true, isMutating, policy: { includeDetails: true } };
   }
   if (params.suppressToolErrors) {
-    return { shouldEmit: false, isMutating };
+    return { shouldEmit: false, isMutating, policy: { includeDetails: true } };
   }
   return {
     shouldEmit: !params.hasUserFacingReply && !isRecoverableToolError(params.lastToolError.error),
     isMutating,
+    policy: { includeDetails: true },
   };
 }
 
@@ -311,7 +315,7 @@ export function buildEmbeddedRunPayloads(params: {
         { markdown: useMarkdown },
       );
       const errorSuffix =
-        warningPolicy.includeDetails && params.lastToolError.error
+        warningState.policy.includeDetails && params.lastToolError.error
           ? `: ${params.lastToolError.error}`
           : "";
       const warningText = `⚠️ ${toolSummary} failed${errorSuffix}`;
