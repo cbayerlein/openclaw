@@ -11,6 +11,45 @@ metadata:
 
 Use **bash** (with optional background mode) for all coding agent work. Simple and effective.
 
+## Execution Contract
+
+Apply this contract when delegating coding work to Codex, Claude Code, OpenCode, or Pi:
+
+```xml
+<coding_execution_contract>
+- Read enough surrounding code before changing behavior.
+- Resolve prerequisites before downstream edits.
+- Keep changes narrow unless a broader refactor is clearly required.
+- Do not stop at analysis when implementation and verification were requested.
+- Verify with the smallest meaningful test, lint, build, smoke check, or review command.
+- Do not claim success without verification or an explicit limitation.
+- Treat the task as incomplete until code changes, validation, and handoff notes are done.
+</coding_execution_contract>
+```
+
+## Wrapper Prompt Pattern
+
+When spawning a coding agent, prefer prompts that include an explicit execution frame instead of only a task sentence.
+
+Recommended reusable wrapper:
+
+```xml
+<subagent_execution_contract>
+- Complete the requested task end-to-end when feasible.
+- Use local context and file inspection before asking follow-up questions.
+- Resolve prerequisites before downstream actions.
+- Before finalizing, verify coverage, grounding, and requested output format.
+- If blocked, state the exact blocker and the next required input.
+</subagent_execution_contract>
+
+<subagent_coding_contract>
+- Inspect relevant files before editing.
+- Keep changes scoped unless broader refactor is required.
+- Run the narrowest meaningful verification.
+- Report concrete files changed and validation performed.
+</subagent_coding_contract>
+```
+
 ## ⚠️ PTY Mode Required!
 
 Coding agents (Codex, Claude Code, Pi) are **interactive terminal applications** that need a pseudo-terminal (PTY) to work correctly. Without PTY, you'll get broken output, missing colors, or the agent may hang.
