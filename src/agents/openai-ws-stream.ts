@@ -40,6 +40,7 @@ import {
   type OpenAIWebSocketManagerOptions,
   type ResponseObject,
 } from "./openai-ws-connection.js";
+import { isTransientHttpError, parseApiErrorInfo } from "./pi-embedded-helpers.js";
 import { log } from "./pi-embedded-runner/logger.js";
 import {
   buildAssistantMessage,
@@ -346,6 +347,9 @@ export interface OpenAIWebSocketStreamOptions {
 
 type WsTransport = "sse" | "websocket" | "auto";
 const WARM_UP_TIMEOUT_MS = 8_000;
+const WS_TRANSIENT_RETRY_BACKOFF_MS = [1500, 4000] as const;
+const WS_TRANSIENT_RETRY_ENV = "OPENCLAW_WS_TRANSIENT_SERVER_ERROR_RETRY";
+const WS_TRANSIENT_RETRY_ENABLED = process.env[WS_TRANSIENT_RETRY_ENV] === "1";
 
 function resolveWsTransport(options: Parameters<StreamFn>[2]): WsTransport {
   const transport = (options as { transport?: unknown } | undefined)?.transport;
@@ -359,6 +363,29 @@ type WsOptions = Parameters<StreamFn>[2] & { openaiWsWarmup?: unknown; signal?: 
 function resolveWsWarmup(options: Parameters<StreamFn>[2]): boolean {
   const warmup = (options as WsOptions | undefined)?.openaiWsWarmup;
   return warmup === true;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function maxTransientRetriesForTransport(transport: WsTransport): number {
+  return transport === "websocket" ? 2 : 1;
+}
+
+function isRetryableWsProviderError(raw: string): boolean {
+  if (!raw) {
+    return false;
+  }
+  const info = parseApiErrorInfo(raw);
+  if (info?.type === "server_error") {
+    return true;
+  }
+  if (isTransientHttpError(raw)) {
+    return true;
+  }
+  const lower = raw.toLowerCase();
+  return lower.includes('"type":"server_error"') || lower.includes('"code":"server_error"');
 }
 
 async function runWarmUp(params: {
@@ -443,261 +470,319 @@ export function createOpenAIWebSocketStreamFn(
         return fallbackToHttp(model, context, options, eventStream, opts.signal);
       }
 
-      // ── 1. Get or create session state ──────────────────────────────────
-      let session = wsRegistry.get(sessionId);
+      let transientAttempt = 0;
+      const maxTransientRetries = WS_TRANSIENT_RETRY_ENABLED
+        ? maxTransientRetriesForTransport(transport)
+        : 0;
 
-      if (!session) {
-        const manager = new OpenAIWebSocketManager(opts.managerOptions);
-        session = {
-          manager,
-          lastContextLength: 0,
-          everConnected: false,
-          warmUpAttempted: false,
-          broken: false,
-        };
-        wsRegistry.set(sessionId, session);
-      }
-
-      // ── 2. Ensure connection is open ─────────────────────────────────────
-      if (!session.manager.isConnected() && !session.broken) {
+      while (true) {
+        let session = wsRegistry.get(sessionId);
         try {
-          await session.manager.connect(apiKey);
-          session.everConnected = true;
-          log.debug(`[ws-stream] connected for session=${sessionId}`);
-        } catch (connErr) {
-          // Cancel any background reconnect attempts before marking as broken.
+          // ── 1. Get or create session state ──────────────────────────────────
+
+          if (!session) {
+            const manager = new OpenAIWebSocketManager(opts.managerOptions);
+            session = {
+              manager,
+              lastContextLength: 0,
+              everConnected: false,
+              warmUpAttempted: false,
+              broken: false,
+            };
+            wsRegistry.set(sessionId, session);
+          }
+
+          const activeSession = session;
+
+          // ── 2. Ensure connection is open ─────────────────────────────────────
+          if (!activeSession.manager.isConnected() && !activeSession.broken) {
+            try {
+              await activeSession.manager.connect(apiKey);
+              activeSession.everConnected = true;
+              log.debug(`[ws-stream] connected for session=${sessionId}`);
+            } catch (connErr) {
+              // Cancel any background reconnect attempts before marking as broken.
+              try {
+                session?.manager.close();
+              } catch {
+                /* ignore */
+              }
+              activeSession.broken = true;
+              wsRegistry.delete(sessionId);
+              if (transport === "websocket") {
+                throw connErr instanceof Error ? connErr : new Error(String(connErr));
+              }
+              log.warn(
+                `[ws-stream] WebSocket connect failed for session=${sessionId}; falling back to HTTP. error=${String(connErr)}`,
+              );
+              // Fall back to HTTP immediately
+              return fallbackToHttp(model, context, options, eventStream, opts.signal);
+            }
+          }
+
+          if (activeSession.broken || !activeSession.manager.isConnected()) {
+            if (transport === "websocket") {
+              throw new Error("WebSocket session disconnected");
+            }
+            log.warn(`[ws-stream] session=${sessionId} broken/disconnected; falling back to HTTP`);
+            // Clean up stale session to prevent next turn from using stale
+            // previousResponseId / lastContextLength after a mid-request drop.
+            try {
+              session?.manager.close();
+            } catch {
+              /* ignore */
+            }
+            wsRegistry.delete(sessionId);
+            return fallbackToHttp(model, context, options, eventStream, opts.signal);
+          }
+
+          const signal = opts.signal ?? (options as WsOptions | undefined)?.signal;
+
+          if (resolveWsWarmup(options) && !session.warmUpAttempted) {
+            session.warmUpAttempted = true;
+            try {
+              await runWarmUp({
+                manager: activeSession.manager,
+                modelId: model.id,
+                tools: convertTools(context.tools),
+                instructions: context.systemPrompt ?? undefined,
+                signal,
+              });
+              log.debug(`[ws-stream] warm-up completed for session=${sessionId}`);
+            } catch (warmErr) {
+              if (signal?.aborted) {
+                throw warmErr instanceof Error ? warmErr : new Error(String(warmErr));
+              }
+              log.warn(
+                `[ws-stream] warm-up failed for session=${sessionId}; continuing without warm-up. error=${String(warmErr)}`,
+              );
+            }
+          }
+
+          // ── 3. Compute incremental vs full input ─────────────────────────────
+          const prevResponseId = activeSession.manager.previousResponseId;
+          let inputItems: InputItem[];
+
+          if (prevResponseId && session.lastContextLength > 0) {
+            // Subsequent turn: only send new messages (tool results) since last call
+            const newMessages = context.messages.slice(session.lastContextLength);
+            // Filter to only tool results — the assistant message is already in server context
+            const toolResults = newMessages.filter((m) => (m as AnyMessage).role === "toolResult");
+            if (toolResults.length === 0) {
+              // Shouldn't happen in a well-formed turn, but fall back to full context
+              log.debug(
+                `[ws-stream] session=${sessionId}: no new tool results found; sending full context`,
+              );
+              inputItems = buildFullInput(context);
+            } else {
+              inputItems = convertMessagesToInputItems(toolResults);
+            }
+            log.debug(
+              `[ws-stream] session=${sessionId}: incremental send (${inputItems.length} tool results) previous_response_id=${prevResponseId}`,
+            );
+          } else {
+            // First turn: send full context
+            inputItems = buildFullInput(context);
+            log.debug(
+              `[ws-stream] session=${sessionId}: full context send (${inputItems.length} items)`,
+            );
+          }
+
+          // ── 4. Build & send response.create ──────────────────────────────────
+          const tools = convertTools(context.tools);
+
+          // Forward generation options that the HTTP path (openai-responses provider) also uses.
+          // Cast to record since SimpleStreamOptions carries openai-specific fields as unknown.
+          const streamOpts = options as
+            | (Record<string, unknown> & {
+                temperature?: number;
+                maxTokens?: number;
+                topP?: number;
+                toolChoice?: unknown;
+              })
+            | undefined;
+          const extraParams: Record<string, unknown> = {};
+          if (streamOpts?.temperature !== undefined) {
+            extraParams.temperature = streamOpts.temperature;
+          }
+          if (streamOpts?.maxTokens) {
+            extraParams.max_output_tokens = streamOpts.maxTokens;
+          }
+          if (streamOpts?.topP !== undefined) {
+            extraParams.top_p = streamOpts.topP;
+          }
+          if (streamOpts?.toolChoice !== undefined) {
+            extraParams.tool_choice = streamOpts.toolChoice;
+          }
+          if (streamOpts?.reasoningEffort || streamOpts?.reasoningSummary) {
+            const reasoning: { effort?: string; summary?: string } = {};
+            if (streamOpts.reasoningEffort !== undefined) {
+              reasoning.effort = streamOpts.reasoningEffort as string;
+            }
+            if (streamOpts.reasoningSummary !== undefined) {
+              reasoning.summary = streamOpts.reasoningSummary as string;
+            }
+            extraParams.reasoning = reasoning;
+          }
+
+          const payload: Record<string, unknown> = {
+            type: "response.create",
+            model: model.id,
+            store: false,
+            input: inputItems,
+            instructions: context.systemPrompt ?? undefined,
+            tools: tools.length > 0 ? tools : undefined,
+            ...(prevResponseId ? { previous_response_id: prevResponseId } : {}),
+            ...extraParams,
+          };
+          options?.onPayload?.(payload);
+
           try {
-            session.manager.close();
+            activeSession.manager.send(payload as Parameters<OpenAIWebSocketManager["send"]>[0]);
+          } catch (sendErr) {
+            if (transport === "websocket") {
+              throw sendErr instanceof Error ? sendErr : new Error(String(sendErr));
+            }
+            log.warn(
+              `[ws-stream] send failed for session=${sessionId}; falling back to HTTP. error=${String(sendErr)}`,
+            );
+            // Fully reset session state so the next WS turn doesn't use stale
+            // previous_response_id or lastContextLength from before the failure.
+            try {
+              session?.manager.close();
+            } catch {
+              /* ignore */
+            }
+            wsRegistry.delete(sessionId);
+            return fallbackToHttp(model, context, options, eventStream, opts.signal);
+          }
+
+          eventStream.push({
+            type: "start",
+            partial: buildAssistantMessageWithZeroUsage({
+              model,
+              content: [],
+              stopReason: "stop",
+            }),
+          });
+
+          // ── 5. Wait for response.completed ───────────────────────────────────
+          const capturedContextLength = context.messages.length;
+
+          await new Promise<void>((resolve, reject) => {
+            // Honour abort signal
+            const abortHandler = () => {
+              cleanup();
+              reject(new Error("aborted"));
+            };
+            if (signal?.aborted) {
+              reject(new Error("aborted"));
+              return;
+            }
+            signal?.addEventListener("abort", abortHandler, { once: true });
+
+            // If the WebSocket drops mid-request, reject so we don't hang forever.
+            const closeHandler = (code: number, reason: string) => {
+              cleanup();
+              reject(
+                new Error(
+                  `WebSocket closed mid-request (code=${code}, reason=${reason || "unknown"})`,
+                ),
+              );
+            };
+            activeSession.manager.on("close", closeHandler);
+
+            const cleanup = () => {
+              signal?.removeEventListener("abort", abortHandler);
+              activeSession.manager.off("close", closeHandler);
+              unsubscribe();
+            };
+
+            const unsubscribe = activeSession.manager.onMessage((event) => {
+              if (event.type === "response.completed") {
+                cleanup();
+                // Update session state
+                activeSession.lastContextLength = capturedContextLength;
+                // Build and emit the assistant message
+                const assistantMsg = buildAssistantMessageFromResponse(event.response, {
+                  api: model.api,
+                  provider: model.provider,
+                  id: model.id,
+                });
+                const reason: Extract<StopReason, "stop" | "length" | "toolUse"> =
+                  assistantMsg.stopReason === "toolUse" ? "toolUse" : "stop";
+                eventStream.push({ type: "done", reason, message: assistantMsg });
+                resolve();
+              } else if (event.type === "response.failed") {
+                cleanup();
+                const errType = event.response?.error?.code ?? "unknown";
+                const errMsg = event.response?.error?.message ?? "Response failed";
+                reject(
+                  new Error(
+                    `OpenAI WebSocket response failed: {"type":"error","error":{"type":"${errType}","code":"${errType}","message":${JSON.stringify(errMsg)}}}`,
+                  ),
+                );
+              } else if (event.type === "error") {
+                cleanup();
+                reject(
+                  new Error(
+                    `OpenAI WebSocket error: {"type":"error","error":{"type":${JSON.stringify(event.code)},"code":${JSON.stringify(event.code)},"message":${JSON.stringify(event.message)}}}`,
+                  ),
+                );
+              } else if (event.type === "response.output_text.delta") {
+                // Stream partial text updates for responsive UI
+                const partialMsg: AssistantMessage = buildAssistantMessageWithZeroUsage({
+                  model,
+                  content: [{ type: "text", text: event.delta }],
+                  stopReason: "stop",
+                });
+                eventStream.push({
+                  type: "text_delta",
+                  contentIndex: 0,
+                  delta: event.delta,
+                  partial: partialMsg,
+                });
+              }
+            });
+          });
+          return;
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          const retryable = isRetryableWsProviderError(errorMessage);
+          const canRetry = retryable && transientAttempt < maxTransientRetries;
+
+          if (!canRetry) {
+            throw err;
+          }
+
+          transientAttempt += 1;
+          const delayMs =
+            WS_TRANSIENT_RETRY_BACKOFF_MS[
+              Math.min(transientAttempt - 1, WS_TRANSIENT_RETRY_BACKOFF_MS.length - 1)
+            ] ?? 1500;
+
+          log.warn(
+            `[ws-stream] retryable provider error for session=${sessionId}; attempt=${transientAttempt}/${maxTransientRetries}; transport=${transport}; retryInMs=${delayMs}; error=${errorMessage}`,
+          );
+
+          try {
+            session?.manager.close();
           } catch {
             /* ignore */
           }
-          session.broken = true;
           wsRegistry.delete(sessionId);
-          if (transport === "websocket") {
-            throw connErr instanceof Error ? connErr : new Error(String(connErr));
+
+          if (transport === "auto" && transientAttempt >= maxTransientRetries) {
+            log.warn(
+              `[ws-stream] retryable WS provider error persisted for session=${sessionId}; falling back to HTTP after ${transientAttempt} attempt(s)`,
+            );
+            return fallbackToHttp(model, context, options, eventStream, opts.signal);
           }
-          log.warn(
-            `[ws-stream] WebSocket connect failed for session=${sessionId}; falling back to HTTP. error=${String(connErr)}`,
-          );
-          // Fall back to HTTP immediately
-          return fallbackToHttp(model, context, options, eventStream, opts.signal);
+
+          await sleep(delayMs);
+          continue;
         }
       }
-
-      if (session.broken || !session.manager.isConnected()) {
-        if (transport === "websocket") {
-          throw new Error("WebSocket session disconnected");
-        }
-        log.warn(`[ws-stream] session=${sessionId} broken/disconnected; falling back to HTTP`);
-        // Clean up stale session to prevent next turn from using stale
-        // previousResponseId / lastContextLength after a mid-request drop.
-        try {
-          session.manager.close();
-        } catch {
-          /* ignore */
-        }
-        wsRegistry.delete(sessionId);
-        return fallbackToHttp(model, context, options, eventStream, opts.signal);
-      }
-
-      const signal = opts.signal ?? (options as WsOptions | undefined)?.signal;
-
-      if (resolveWsWarmup(options) && !session.warmUpAttempted) {
-        session.warmUpAttempted = true;
-        try {
-          await runWarmUp({
-            manager: session.manager,
-            modelId: model.id,
-            tools: convertTools(context.tools),
-            instructions: context.systemPrompt ?? undefined,
-            signal,
-          });
-          log.debug(`[ws-stream] warm-up completed for session=${sessionId}`);
-        } catch (warmErr) {
-          if (signal?.aborted) {
-            throw warmErr instanceof Error ? warmErr : new Error(String(warmErr));
-          }
-          log.warn(
-            `[ws-stream] warm-up failed for session=${sessionId}; continuing without warm-up. error=${String(warmErr)}`,
-          );
-        }
-      }
-
-      // ── 3. Compute incremental vs full input ─────────────────────────────
-      const prevResponseId = session.manager.previousResponseId;
-      let inputItems: InputItem[];
-
-      if (prevResponseId && session.lastContextLength > 0) {
-        // Subsequent turn: only send new messages (tool results) since last call
-        const newMessages = context.messages.slice(session.lastContextLength);
-        // Filter to only tool results — the assistant message is already in server context
-        const toolResults = newMessages.filter((m) => (m as AnyMessage).role === "toolResult");
-        if (toolResults.length === 0) {
-          // Shouldn't happen in a well-formed turn, but fall back to full context
-          log.debug(
-            `[ws-stream] session=${sessionId}: no new tool results found; sending full context`,
-          );
-          inputItems = buildFullInput(context);
-        } else {
-          inputItems = convertMessagesToInputItems(toolResults);
-        }
-        log.debug(
-          `[ws-stream] session=${sessionId}: incremental send (${inputItems.length} tool results) previous_response_id=${prevResponseId}`,
-        );
-      } else {
-        // First turn: send full context
-        inputItems = buildFullInput(context);
-        log.debug(
-          `[ws-stream] session=${sessionId}: full context send (${inputItems.length} items)`,
-        );
-      }
-
-      // ── 4. Build & send response.create ──────────────────────────────────
-      const tools = convertTools(context.tools);
-
-      // Forward generation options that the HTTP path (openai-responses provider) also uses.
-      // Cast to record since SimpleStreamOptions carries openai-specific fields as unknown.
-      const streamOpts = options as
-        | (Record<string, unknown> & {
-            temperature?: number;
-            maxTokens?: number;
-            topP?: number;
-            toolChoice?: unknown;
-          })
-        | undefined;
-      const extraParams: Record<string, unknown> = {};
-      if (streamOpts?.temperature !== undefined) {
-        extraParams.temperature = streamOpts.temperature;
-      }
-      if (streamOpts?.maxTokens) {
-        extraParams.max_output_tokens = streamOpts.maxTokens;
-      }
-      if (streamOpts?.topP !== undefined) {
-        extraParams.top_p = streamOpts.topP;
-      }
-      if (streamOpts?.toolChoice !== undefined) {
-        extraParams.tool_choice = streamOpts.toolChoice;
-      }
-      if (streamOpts?.reasoningEffort || streamOpts?.reasoningSummary) {
-        const reasoning: { effort?: string; summary?: string } = {};
-        if (streamOpts.reasoningEffort !== undefined) {
-          reasoning.effort = streamOpts.reasoningEffort as string;
-        }
-        if (streamOpts.reasoningSummary !== undefined) {
-          reasoning.summary = streamOpts.reasoningSummary as string;
-        }
-        extraParams.reasoning = reasoning;
-      }
-
-      const payload: Record<string, unknown> = {
-        type: "response.create",
-        model: model.id,
-        store: false,
-        input: inputItems,
-        instructions: context.systemPrompt ?? undefined,
-        tools: tools.length > 0 ? tools : undefined,
-        ...(prevResponseId ? { previous_response_id: prevResponseId } : {}),
-        ...extraParams,
-      };
-      options?.onPayload?.(payload);
-
-      try {
-        session.manager.send(payload as Parameters<OpenAIWebSocketManager["send"]>[0]);
-      } catch (sendErr) {
-        if (transport === "websocket") {
-          throw sendErr instanceof Error ? sendErr : new Error(String(sendErr));
-        }
-        log.warn(
-          `[ws-stream] send failed for session=${sessionId}; falling back to HTTP. error=${String(sendErr)}`,
-        );
-        // Fully reset session state so the next WS turn doesn't use stale
-        // previous_response_id or lastContextLength from before the failure.
-        try {
-          session.manager.close();
-        } catch {
-          /* ignore */
-        }
-        wsRegistry.delete(sessionId);
-        return fallbackToHttp(model, context, options, eventStream, opts.signal);
-      }
-
-      eventStream.push({
-        type: "start",
-        partial: buildAssistantMessageWithZeroUsage({
-          model,
-          content: [],
-          stopReason: "stop",
-        }),
-      });
-
-      // ── 5. Wait for response.completed ───────────────────────────────────
-      const capturedContextLength = context.messages.length;
-
-      await new Promise<void>((resolve, reject) => {
-        // Honour abort signal
-        const abortHandler = () => {
-          cleanup();
-          reject(new Error("aborted"));
-        };
-        if (signal?.aborted) {
-          reject(new Error("aborted"));
-          return;
-        }
-        signal?.addEventListener("abort", abortHandler, { once: true });
-
-        // If the WebSocket drops mid-request, reject so we don't hang forever.
-        const closeHandler = (code: number, reason: string) => {
-          cleanup();
-          reject(
-            new Error(`WebSocket closed mid-request (code=${code}, reason=${reason || "unknown"})`),
-          );
-        };
-        session.manager.on("close", closeHandler);
-
-        const cleanup = () => {
-          signal?.removeEventListener("abort", abortHandler);
-          session.manager.off("close", closeHandler);
-          unsubscribe();
-        };
-
-        const unsubscribe = session.manager.onMessage((event) => {
-          if (event.type === "response.completed") {
-            cleanup();
-            // Update session state
-            session.lastContextLength = capturedContextLength;
-            // Build and emit the assistant message
-            const assistantMsg = buildAssistantMessageFromResponse(event.response, {
-              api: model.api,
-              provider: model.provider,
-              id: model.id,
-            });
-            const reason: Extract<StopReason, "stop" | "length" | "toolUse"> =
-              assistantMsg.stopReason === "toolUse" ? "toolUse" : "stop";
-            eventStream.push({ type: "done", reason, message: assistantMsg });
-            resolve();
-          } else if (event.type === "response.failed") {
-            cleanup();
-            const errMsg = event.response?.error?.message ?? "Response failed";
-            reject(new Error(`OpenAI WebSocket response failed: ${errMsg}`));
-          } else if (event.type === "error") {
-            cleanup();
-            reject(new Error(`OpenAI WebSocket error: ${event.message} (code=${event.code})`));
-          } else if (event.type === "response.output_text.delta") {
-            // Stream partial text updates for responsive UI
-            const partialMsg: AssistantMessage = buildAssistantMessageWithZeroUsage({
-              model,
-              content: [{ type: "text", text: event.delta }],
-              stopReason: "stop",
-            });
-            eventStream.push({
-              type: "text_delta",
-              contentIndex: 0,
-              delta: event.delta,
-              partial: partialMsg,
-            });
-          }
-        });
-      });
     };
 
     queueMicrotask(() =>
