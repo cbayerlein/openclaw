@@ -6,6 +6,7 @@ import {
   composeSystemPromptWithHookContext,
   isOllamaCompatProvider,
   prependSystemPromptAddition,
+  resolveCompactReplyExtraSystemPrompt,
   resolveAttemptFsWorkspaceOnly,
   resolveOllamaCompatNumCtxEnabled,
   resolvePromptBuildHookResult,
@@ -144,6 +145,21 @@ describe("resolvePromptModeForSession", () => {
     expect(resolvePromptModeForSession(undefined)).toBe("full");
     expect(resolvePromptModeForSession("agent:main")).toBe("full");
     expect(resolvePromptModeForSession("agent:main:thread:abc")).toBe("full");
+  });
+});
+
+describe("resolveCompactReplyExtraSystemPrompt", () => {
+  it("returns original extraSystemPrompt when compact reply style is not enabled", () => {
+    expect(resolveCompactReplyExtraSystemPrompt({ extraSystemPrompt: "extra" })).toBe("extra");
+  });
+
+  it("appends compact reply guidance when replyStyle.compact is enabled", () => {
+    const result = resolveCompactReplyExtraSystemPrompt({
+      replyStyle: { compact: true },
+      extraSystemPrompt: "extra",
+    });
+    expect(result).toContain("extra");
+    expect(result).toContain("Keep replies intentionally compact");
   });
 });
 
