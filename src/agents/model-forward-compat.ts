@@ -12,7 +12,6 @@ const OPENAI_GPT_54_TEMPLATE_MODEL_IDS = ["gpt-5.2"] as const;
 const OPENAI_GPT_54_PRO_TEMPLATE_MODEL_IDS = ["gpt-5.2-pro", "gpt-5.2"] as const;
 
 const OPENAI_CODEX_GPT_54_MODEL_ID = "gpt-5.4";
-const OPENAI_CODEX_GPT_54_CODEX_MODEL_ID = "gpt-5.4-codex";
 const OPENAI_CODEX_GPT_54_CONTEXT_TOKENS = 1_050_000;
 const OPENAI_CODEX_GPT_54_MAX_TOKENS = 128_000;
 const OPENAI_CODEX_GPT_54_TEMPLATE_MODEL_IDS = ["gpt-5.3-codex", "gpt-5.2-codex"] as const;
@@ -130,17 +129,14 @@ function resolveOpenAICodexForwardCompatModel(
   let templateIds: readonly string[];
   let eligibleProviders: Set<string>;
   let patch: Partial<Model<Api>> | undefined;
-  if (lower === OPENAI_CODEX_GPT_54_MODEL_ID || lower === OPENAI_CODEX_GPT_54_CODEX_MODEL_ID) {
+  if (lower === OPENAI_CODEX_GPT_54_MODEL_ID) {
     templateIds = OPENAI_CODEX_GPT_54_TEMPLATE_MODEL_IDS;
     eligibleProviders = CODEX_GPT54_ELIGIBLE_PROVIDERS;
     patch = {
       contextWindow: OPENAI_CODEX_GPT_54_CONTEXT_TOKENS,
       maxTokens: OPENAI_CODEX_GPT_54_MAX_TOKENS,
     };
-  } else if (
-    lower.startsWith(`${OPENAI_CODEX_GPT_54_MODEL_ID}-`) ||
-    lower.startsWith(`${OPENAI_CODEX_GPT_54_CODEX_MODEL_ID}-`)
-  ) {
+  } else if (lower.startsWith(`${OPENAI_CODEX_GPT_54_MODEL_ID}-`)) {
     templateIds = OPENAI_CODEX_GPT_54_TEMPLATE_MODEL_IDS;
     eligibleProviders = CODEX_GPT54_ELIGIBLE_PROVIDERS;
     patch = {
