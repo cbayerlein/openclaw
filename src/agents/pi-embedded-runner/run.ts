@@ -54,6 +54,7 @@ import {
   pickFallbackThinkingLevel,
   type FailoverReason,
 } from "../pi-embedded-helpers.js";
+import { resolveReplyStyleForRun } from "../reply-style.js";
 import { ensureRuntimePluginsLoaded } from "../runtime-plugins.js";
 import { derivePromptTokens, normalizeUsage, type UsageLike } from "../usage.js";
 import { redactRunIdentifier, resolveRunWorkspaceDir } from "../workspace-run.js";
@@ -360,6 +361,12 @@ export async function runEmbeddedPiAgent(
         modelId = modelResolveOverride.modelOverride;
         log.info(`[hooks] model overridden to ${modelId}`);
       }
+
+      const replyStyle = resolveReplyStyleForRun({
+        channel: params.messageChannel ?? params.messageProvider,
+        provider,
+        model: modelId,
+      });
 
       const { model, error, authStorage, modelRegistry } = resolveModel(
         provider,
@@ -889,6 +896,7 @@ export async function runEmbeddedPiAgent(
             authStorage,
             modelRegistry,
             agentId: workspaceResolution.agentId,
+            replyStyle,
             legacyBeforeAgentStartResult,
             thinkLevel,
             verboseLevel: params.verboseLevel,

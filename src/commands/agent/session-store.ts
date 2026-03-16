@@ -2,6 +2,7 @@ import { setCliSessionId } from "../../agents/cli-session.js";
 import { resolveContextTokensForModel } from "../../agents/context.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../../agents/defaults.js";
 import { isCliProvider } from "../../agents/model-selection.js";
+import { resolveReplyStyleForRun } from "../../agents/reply-style.js";
 import { deriveSessionTotalTokens, hasNonzeroUsage } from "../../agents/usage.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import {
@@ -65,7 +66,13 @@ export async function updateSessionStoreAfterAgentRun(params: {
     updatedAt: Date.now(),
     contextTokens,
   };
+  const channelUsed = entry.lastChannel ?? entry.channel;
   setSessionRuntimeModel(next, {
+    provider: providerUsed,
+    model: modelUsed,
+  });
+  next.replyStyle = resolveReplyStyleForRun({
+    channel: channelUsed,
     provider: providerUsed,
     model: modelUsed,
   });

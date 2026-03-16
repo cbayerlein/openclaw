@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import process from "node:process";
 import { describe, expect, it } from "vitest";
+import { resolveReplyStyleForRun } from "../../agents/reply-style.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import { loadSessionStore } from "../../config/sessions.js";
 import { updateSessionStoreAfterAgentRun } from "./session-store.js";
@@ -19,6 +21,26 @@ function acpMeta() {
 }
 
 describe("updateSessionStoreAfterAgentRun", () => {
+  it("resolveReplyStyleForRun returns compact style only for telegram gpt-5.4 when enabled", () => {
+    expect(
+      resolveReplyStyleForRun({
+        env: { OPENCLAW_TELEGRAM_GPT54_COMPACT_REPLIES: "1" },
+        channel: "telegram",
+        provider: "openai-codex",
+        model: "gpt-5.4",
+      }),
+    ).toEqual({ compact: true });
+
+    expect(
+      resolveReplyStyleForRun({
+        env: { OPENCLAW_TELEGRAM_GPT54_COMPACT_REPLIES: "1" },
+        channel: "telegram",
+        provider: "openai-codex",
+        model: "gpt-5.3-codex",
+      }),
+    ).toBeUndefined();
+  });
+
   it("preserves ACP metadata when caller has a stale session snapshot", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-session-store-"));
     const storePath = path.join(dir, "sessions.json");
@@ -123,5 +145,54 @@ describe("updateSessionStoreAfterAgentRun", () => {
     expect(sessionStore[sessionKey]?.systemPromptReport?.bootstrapTruncation?.warningMode).toBe(
       "once",
     );
+  });
+
+  it("sets replyStyle.compact only for telegram gpt-5.4 runs when the feature flag is enabled", async () => {
+    const previous = process.env.OPENCLAW_TELEGRAM_GPT54_COMPACT_REPLIES;
+    process.env.OPENCLAW_TELEGRAM_GPT54_COMPACT_REPLIES = "1";
+    try {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-session-store-"));
+      const storePath = path.join(dir, "sessions.json");
+      const sessionKey = `agent:main:chat:${randomUUID()}`;
+      const sessionId = randomUUID();
+
+      const sessionStore: Record<string, SessionEntry> = {
+        [sessionKey]: {
+          sessionId,
+          updatedAt: Date.now(),
+          channel: "telegram",
+        },
+      };
+      await fs.writeFile(storePath, JSON.stringify(sessionStore, null, 2), "utf8");
+
+      await updateSessionStoreAfterAgentRun({
+        cfg: {} as never,
+        sessionId,
+        sessionKey,
+        storePath,
+        sessionStore,
+        defaultProvider: "openai-codex",
+        defaultModel: "gpt-5.4",
+        result: {
+          payloads: [],
+          meta: {
+            agentMeta: {
+              provider: "openai-codex",
+              model: "gpt-5.4",
+            },
+          },
+        } as never,
+      });
+
+      const persisted = loadSessionStore(storePath, { skipCache: true })[sessionKey];
+      expect(persisted?.replyStyle).toEqual({ compact: true });
+      expect(sessionStore[sessionKey]?.replyStyle).toEqual({ compact: true });
+    } finally {
+      if (previous === undefined) {
+        delete process.env.OPENCLAW_TELEGRAM_GPT54_COMPACT_REPLIES;
+      } else {
+        process.env.OPENCLAW_TELEGRAM_GPT54_COMPACT_REPLIES = previous;
+      }
+    }
   });
 });

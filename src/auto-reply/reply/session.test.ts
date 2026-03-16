@@ -1753,6 +1753,45 @@ describe("persistSessionUsageUpdate", () => {
     expect(stored[sessionKey].totalTokens).toBe(250_000);
     expect(stored[sessionKey].totalTokensFresh).toBe(true);
   });
+
+  it("persists replyStyle.compact for telegram gpt-5.4 runs when the feature flag is enabled", async () => {
+    const previous = process.env.OPENCLAW_TELEGRAM_GPT54_COMPACT_REPLIES;
+    process.env.OPENCLAW_TELEGRAM_GPT54_COMPACT_REPLIES = "1";
+
+    try {
+      const storePath = await createStorePath("openclaw-usage-reply-style-");
+      const sessionKey = "main";
+      await seedSessionStore({
+        storePath,
+        sessionKey,
+        entry: {
+          sessionId: "s1",
+          updatedAt: Date.now(),
+          channel: "telegram",
+          lastChannel: "telegram",
+        },
+      });
+
+      await persistSessionUsageUpdate({
+        storePath,
+        sessionKey,
+        usage: { input: 12_000, output: 2_000, total: 14_000 },
+        lastCallUsage: { input: 12_000, output: 2_000, total: 14_000 },
+        providerUsed: "openai-codex",
+        modelUsed: "gpt-5.4",
+        contextTokensUsed: 200_000,
+      });
+
+      const stored = JSON.parse(await fs.readFile(storePath, "utf-8"));
+      expect(stored[sessionKey].replyStyle).toEqual({ compact: true });
+    } finally {
+      if (previous === undefined) {
+        delete process.env.OPENCLAW_TELEGRAM_GPT54_COMPACT_REPLIES;
+      } else {
+        process.env.OPENCLAW_TELEGRAM_GPT54_COMPACT_REPLIES = previous;
+      }
+    }
+  });
 });
 
 describe("initSessionState stale threadId fallback", () => {
