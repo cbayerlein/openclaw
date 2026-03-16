@@ -12,6 +12,7 @@ const OPENAI_GPT_54_TEMPLATE_MODEL_IDS = ["gpt-5.2"] as const;
 const OPENAI_GPT_54_PRO_TEMPLATE_MODEL_IDS = ["gpt-5.2-pro", "gpt-5.2"] as const;
 
 const OPENAI_CODEX_GPT_54_MODEL_ID = "gpt-5.4";
+const OPENAI_CODEX_GPT_54_CODEX_MODEL_ID = "gpt-5.4-codex";
 const OPENAI_CODEX_GPT_54_CONTEXT_TOKENS = 1_050_000;
 const OPENAI_CODEX_GPT_54_MAX_TOKENS = 128_000;
 const OPENAI_CODEX_GPT_54_TEMPLATE_MODEL_IDS = ["gpt-5.3-codex", "gpt-5.2-codex"] as const;
@@ -129,7 +130,17 @@ function resolveOpenAICodexForwardCompatModel(
   let templateIds: readonly string[];
   let eligibleProviders: Set<string>;
   let patch: Partial<Model<Api>> | undefined;
-  if (lower === OPENAI_CODEX_GPT_54_MODEL_ID) {
+  if (lower === OPENAI_CODEX_GPT_54_MODEL_ID || lower === OPENAI_CODEX_GPT_54_CODEX_MODEL_ID) {
+    templateIds = OPENAI_CODEX_GPT_54_TEMPLATE_MODEL_IDS;
+    eligibleProviders = CODEX_GPT54_ELIGIBLE_PROVIDERS;
+    patch = {
+      contextWindow: OPENAI_CODEX_GPT_54_CONTEXT_TOKENS,
+      maxTokens: OPENAI_CODEX_GPT_54_MAX_TOKENS,
+    };
+  } else if (
+    lower.startsWith(`${OPENAI_CODEX_GPT_54_MODEL_ID}-`) ||
+    lower.startsWith(`${OPENAI_CODEX_GPT_54_CODEX_MODEL_ID}-`)
+  ) {
     templateIds = OPENAI_CODEX_GPT_54_TEMPLATE_MODEL_IDS;
     eligibleProviders = CODEX_GPT54_ELIGIBLE_PROVIDERS;
     patch = {
@@ -265,80 +276,59 @@ function resolveAnthropicSonnet46ForwardCompatModel(
   });
 }
 
-// gemini-3.1-pro-preview / gemini-3.1-flash-preview are not present in some pi-ai
-// Google catalogs yet. Clone the nearest gemini-3 template so users don't get
-// "Unknown model" errors when Google ships new minor-version models before pi-ai
-// updates its built-in registry.
-function resolveGoogle31ForwardCompatModel(
-  provider: string,
-  modelId: string,
-  modelRegistry: ModelRegistry,
-): Model<Api> | undefined {
-  const normalizedProvider = normalizeProviderId(provider);
-  if (normalizedProvider !== "google" && normalizedProvider !== "google-gemini-cli") {
-    return undefined;
-  }
-  const trimmed = modelId.trim();
-  const lower = trimmed.toLowerCase();
-
-  let templateIds: readonly string[];
-  if (lower.startsWith(GEMINI_3_1_PRO_PREFIX)) {
-    templateIds = GEMINI_3_1_PRO_TEMPLATE_IDS;
-  } else if (lower.startsWith(GEMINI_3_1_FLASH_PREFIX)) {
-    templateIds = GEMINI_3_1_FLASH_TEMPLATE_IDS;
-  } else {
-    return undefined;
-  }
-
-  return cloneFirstTemplateModel({
-    normalizedProvider,
-    trimmedModelId: trimmed,
-    templateIds: [...templateIds],
-    modelRegistry,
-    patch: { reasoning: true },
-  });
-}
-
-// Z.ai's GLM-5 may not be present in pi-ai's built-in model catalog yet.
-// When a user configures zai/glm-5 without a models.json entry, clone glm-4.7 as a forward-compat fallback.
 function resolveZaiGlm5ForwardCompatModel(
   provider: string,
   modelId: string,
   modelRegistry: ModelRegistry,
 ): Model<Api> | undefined {
-  if (normalizeProviderId(provider) !== "zai") {
+  const normalizedProvider = normalizeProviderId(provider);
+  if (normalizedProvider !== "zai") {
     return undefined;
   }
-  const trimmed = modelId.trim();
-  const lower = trimmed.toLowerCase();
+
+  const trimmedModelId = modelId.trim();
+  const lower = trimmedModelId.toLowerCase();
   if (lower !== ZAI_GLM5_MODEL_ID && !lower.startsWith(`${ZAI_GLM5_MODEL_ID}-`)) {
     return undefined;
   }
 
-  for (const templateId of ZAI_GLM5_TEMPLATE_MODEL_IDS) {
-    const template = modelRegistry.find("zai", templateId) as Model<Api> | null;
-    if (!template) {
-      continue;
-    }
-    return normalizeModelCompat({
-      ...template,
-      id: trimmed,
-      name: trimmed,
-      reasoning: true,
-    } as Model<Api>);
+  return cloneFirstTemplateModel({
+    normalizedProvider,
+    trimmedModelId,
+    templateIds: [...ZAI_GLM5_TEMPLATE_MODEL_IDS],
+    modelRegistry,
+  });
+}
+
+function resolveGemini31PreviewForwardCompatModel(
+  provider: string,
+  modelId: string,
+  modelRegistry: ModelRegistry,
+): Model<Api> | undefined {
+  const normalizedProvider = normalizeProviderId(provider);
+  if (normalizedProvider !== "google-gemini-cli") {
+    return undefined;
   }
 
-  return normalizeModelCompat({
-    id: trimmed,
-    name: trimmed,
-    api: "openai-completions",
-    provider: "zai",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: DEFAULT_CONTEXT_TOKENS,
-    maxTokens: DEFAULT_CONTEXT_TOKENS,
-  } as Model<Api>);
+  const trimmedModelId = modelId.trim();
+  const lower = trimmedModelId.toLowerCase();
+  if (lower.startsWith(GEMINI_3_1_PRO_PREFIX)) {
+    return cloneFirstTemplateModel({
+      normalizedProvider,
+      trimmedModelId,
+      templateIds: [...GEMINI_3_1_PRO_TEMPLATE_IDS],
+      modelRegistry,
+    });
+  }
+  if (lower.startsWith(GEMINI_3_1_FLASH_PREFIX)) {
+    return cloneFirstTemplateModel({
+      normalizedProvider,
+      trimmedModelId,
+      templateIds: [...GEMINI_3_1_FLASH_TEMPLATE_IDS],
+      modelRegistry,
+    });
+  }
+  return undefined;
 }
 
 export function resolveForwardCompatModel(
@@ -352,6 +342,6 @@ export function resolveForwardCompatModel(
     resolveAnthropicOpus46ForwardCompatModel(provider, modelId, modelRegistry) ??
     resolveAnthropicSonnet46ForwardCompatModel(provider, modelId, modelRegistry) ??
     resolveZaiGlm5ForwardCompatModel(provider, modelId, modelRegistry) ??
-    resolveGoogle31ForwardCompatModel(provider, modelId, modelRegistry)
+    resolveGemini31PreviewForwardCompatModel(provider, modelId, modelRegistry)
   );
 }

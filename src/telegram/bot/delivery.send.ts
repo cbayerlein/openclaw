@@ -1,39 +1,18 @@
-import { type Bot, GrammyError } from "grammy";
+import { type Bot } from "grammy";
 import { formatErrorMessage } from "../../infra/errors.js";
 import type { RuntimeEnv } from "../../runtime.js";
 import { withTelegramApiErrorLogging } from "../api-logging.js";
 import { markdownToTelegramHtml } from "../format.js";
-import { buildInlineKeyboard } from "../send.js";
+import {
+  buildInlineKeyboard,
+  REPLY_PARAM_FALLBACK,
+  THREAD_PARAM_FALLBACK,
+  withTelegramSendParamFallbacks,
+} from "../send.js";
 import { buildTelegramThreadParams, type TelegramThreadSpec } from "./helpers.js";
 
 const PARSE_ERR_RE = /can't parse entities|parse entities|find end of the entity/i;
 const EMPTY_TEXT_ERR_RE = /message text is empty/i;
-const THREAD_NOT_FOUND_RE = /message thread not found/i;
-
-function isTelegramThreadNotFoundError(err: unknown): boolean {
-  if (err instanceof GrammyError) {
-    return THREAD_NOT_FOUND_RE.test(err.description);
-  }
-  return THREAD_NOT_FOUND_RE.test(formatErrorMessage(err));
-}
-
-function hasMessageThreadIdParam(params: Record<string, unknown> | undefined): boolean {
-  if (!params) {
-    return false;
-  }
-  return typeof params.message_thread_id === "number";
-}
-
-function removeMessageThreadIdParam(
-  params: Record<string, unknown> | undefined,
-): Record<string, unknown> {
-  if (!params) {
-    return {};
-  }
-  const { message_thread_id: _ignored, ...rest } = params;
-  return rest;
-}
-
 export async function sendTelegramWithThreadFallback<T>(params: {
   operation: string;
   runtime: RuntimeEnv;
@@ -43,34 +22,35 @@ export async function sendTelegramWithThreadFallback<T>(params: {
   shouldLog?: (err: unknown) => boolean;
 }): Promise<T> {
   const allowThreadlessRetry = params.thread?.scope === "dm";
-  const hasThreadId = hasMessageThreadIdParam(params.requestParams);
-  const shouldSuppressFirstErrorLog = (err: unknown) =>
-    allowThreadlessRetry && hasThreadId && isTelegramThreadNotFoundError(err);
-  const mergedShouldLog = params.shouldLog
-    ? (err: unknown) => params.shouldLog!(err) && !shouldSuppressFirstErrorLog(err)
-    : (err: unknown) => !shouldSuppressFirstErrorLog(err);
+  const shouldSuppressFallbackErrorLog = (
+    err: unknown,
+    effectiveParams: Record<string, unknown> | undefined,
+  ) =>
+    (allowThreadlessRetry &&
+      THREAD_PARAM_FALLBACK.hasFallbackParams(effectiveParams) &&
+      THREAD_PARAM_FALLBACK.shouldFallback(err)) ||
+    (REPLY_PARAM_FALLBACK.hasFallbackParams(effectiveParams) &&
+      REPLY_PARAM_FALLBACK.shouldFallback(err));
 
-  try {
-    return await withTelegramApiErrorLogging({
-      operation: params.operation,
-      runtime: params.runtime,
-      shouldLog: mergedShouldLog,
-      fn: () => params.send(params.requestParams),
-    });
-  } catch (err) {
-    if (!allowThreadlessRetry || !hasThreadId || !isTelegramThreadNotFoundError(err)) {
-      throw err;
-    }
-    const retryParams = removeMessageThreadIdParam(params.requestParams);
-    params.runtime.log?.(
-      `telegram ${params.operation}: message thread not found; retrying without message_thread_id`,
-    );
-    return await withTelegramApiErrorLogging({
-      operation: `${params.operation} (threadless retry)`,
-      runtime: params.runtime,
-      fn: () => params.send(retryParams),
-    });
-  }
+  const mergedShouldLogForParams = (effectiveParams: Record<string, unknown> | undefined) =>
+    params.shouldLog
+      ? (err: unknown) =>
+          params.shouldLog!(err) && !shouldSuppressFallbackErrorLog(err, effectiveParams)
+      : (err: unknown) => !shouldSuppressFallbackErrorLog(err, effectiveParams);
+
+  return await withTelegramSendParamFallbacks({
+    requestParams: params.requestParams,
+    label: params.operation,
+    verbose: false,
+    allowThreadFallback: allowThreadlessRetry,
+    attempt: async (effectiveParams, effectiveLabel) =>
+      await withTelegramApiErrorLogging({
+        operation: effectiveLabel,
+        runtime: params.runtime,
+        shouldLog: mergedShouldLogForParams(effectiveParams),
+        fn: () => params.send(effectiveParams ?? {}),
+      }),
+  });
 }
 
 export function buildTelegramSendParams(opts?: {

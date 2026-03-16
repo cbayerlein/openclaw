@@ -1,0 +1,16 @@
+{
+  "id": "update-plan",
+  "name": "Update Plan",
+  "description": "Optional agent tool to keep a concise multi-step execution plan and persist the latest plan locally.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enforcementMode": {
+        "type": "string",
+        "enum": ["off", "warn", "block"],
+        "description": "Optional guardrail before tool calls: off (default), warn, or block until update_plan is called."
+      }
+    }
+  }
+}

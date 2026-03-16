@@ -136,6 +136,9 @@ import { pruneProcessedHistoryImages } from "./history-image-prune.js";
 import { detectAndLoadPromptImages } from "./images.js";
 import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
 
+const TELEGRAM_GPT54_COMPACT_REPLIES_INSTRUCTION =
+  "Keep replies intentionally compact: default to a short single message, answer first, skip fluffy framing and repeated summaries, and expand only when detail is clearly necessary.";
+
 type PromptBuildHookRunner = {
   hasHooks: (hookName: "before_prompt_build" | "before_agent_start") => boolean;
   runBeforePromptBuild: (
@@ -1239,6 +1242,18 @@ export function resolvePromptModeForSession(sessionKey?: string): "minimal" | "f
   return isSubagentSessionKey(sessionKey) || isCronSessionKey(sessionKey) ? "minimal" : "full";
 }
 
+export function resolveCompactReplyExtraSystemPrompt(params: {
+  replyStyle?: { compact?: boolean };
+  extraSystemPrompt?: string;
+}): string | undefined {
+  if (params.replyStyle?.compact !== true) {
+    return params.extraSystemPrompt;
+  }
+  return [params.extraSystemPrompt, TELEGRAM_GPT54_COMPACT_REPLIES_INSTRUCTION]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .join("\n\n");
+}
+
 export function resolveAttemptFsWorkspaceOnly(params: {
   config?: OpenClawConfig;
   sessionAgentId: string;
@@ -1638,12 +1653,16 @@ export async function runEmbeddedAttempt(
     });
     const ttsHint = params.config ? buildTtsSystemPromptHint(params.config) : undefined;
     const ownerDisplay = resolveOwnerDisplaySetting(params.config);
+    const extraSystemPrompt = resolveCompactReplyExtraSystemPrompt({
+      replyStyle: params.replyStyle,
+      extraSystemPrompt: params.extraSystemPrompt,
+    });
 
     const appendPrompt = buildEmbeddedSystemPrompt({
       workspaceDir: effectiveWorkspace,
       defaultThinkLevel: params.thinkLevel,
       reasoningLevel: params.reasoningLevel ?? "off",
-      extraSystemPrompt: params.extraSystemPrompt,
+      extraSystemPrompt,
       ownerNumbers: params.ownerNumbers,
       ownerDisplay: ownerDisplay.ownerDisplay,
       ownerDisplaySecret: ownerDisplay.ownerDisplaySecret,

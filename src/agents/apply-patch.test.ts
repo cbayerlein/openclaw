@@ -97,6 +97,81 @@ describe("applyPatch", () => {
     });
   });
 
+  it("supports repeated context lines by anchoring to the first valid context after prior chunks", async () => {
+    await withTempDir(async (dir) => {
+      const target = path.join(dir, "repeated-context.txt");
+      await fs.writeFile(target, "section\nfoo\nsection\nbar\n", "utf8");
+
+      const patch = `*** Begin Patch
+*** Update File: repeated-context.txt
+@@ section
+-foo
++FOO
+@@ section
+-bar
++BAR
+*** End Patch`;
+
+      await applyPatch(patch, { cwd: dir });
+      const updated = await fs.readFile(target, "utf8");
+      expect(updated).toBe("section\nFOO\nsection\nBAR\n");
+    });
+  });
+
+  it("rejects ambiguous update matches (edit-parity uniqueness)", async () => {
+    await withTempDir(async (dir) => {
+      const target = path.join(dir, "ambiguous.txt");
+      await fs.writeFile(target, "x\nfoo\ny\nfoo\n", "utf8");
+
+      const patch = `*** Begin Patch
+*** Update File: ambiguous.txt
+@@
+-foo
++bar
+*** End Patch`;
+
+      await expect(applyPatch(patch, { cwd: dir })).rejects.toThrow(/must be unique/i);
+      const unchanged = await fs.readFile(target, "utf8");
+      expect(unchanged).toBe("x\nfoo\ny\nfoo\n");
+    });
+  });
+
+  it("preserves BOM and CRLF endings on updates", async () => {
+    await withTempDir(async (dir) => {
+      const target = path.join(dir, "crlf-bom.txt");
+      await fs.writeFile(target, "\ufeffa\r\nb\r\n", "utf8");
+
+      const patch = `*** Begin Patch
+*** Update File: crlf-bom.txt
+@@
+-b
++c
+*** End Patch`;
+
+      await applyPatch(patch, { cwd: dir });
+      const updated = await fs.readFile(target, "utf8");
+      expect(updated).toBe("\ufeffa\r\nc\r\n");
+    });
+  });
+
+  it("rejects no-op replacements (edit-parity)", async () => {
+    await withTempDir(async (dir) => {
+      const target = path.join(dir, "noop.txt");
+      await fs.writeFile(target, "abc\n", "utf8");
+
+      const patch = `*** Begin Patch
+*** Update File: noop.txt
+@@
+-abc
++abc
+*** End Patch`;
+
+      await expect(applyPatch(patch, { cwd: dir })).rejects.toThrow(/No changes made/i);
+      const unchanged = await fs.readFile(target, "utf8");
+      expect(unchanged).toBe("abc\n");
+    });
+  });
+
   it("rejects path traversal outside cwd by default", async () => {
     await withTempDir(async (dir) => {
       const escapedPath = path.join(

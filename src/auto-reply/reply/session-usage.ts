@@ -1,4 +1,5 @@
 import { setCliSessionId } from "../../agents/cli-session.js";
+import { resolveReplyStyleForRun } from "../../agents/reply-style.js";
 import {
   deriveSessionTotalTokens,
   hasNonzeroUsage,
@@ -30,6 +31,22 @@ function applyCliSessionIdToSessionPatch(
     };
   }
   return patch;
+}
+
+function resolvePersistedReplyStyle(params: {
+  entry: SessionEntry;
+  patch: Partial<SessionEntry>;
+}): SessionEntry["replyStyle"] {
+  const provider = params.patch.modelProvider ?? params.entry.modelProvider;
+  const model = params.patch.model ?? params.entry.model;
+  if (!provider || !model) {
+    return params.entry.replyStyle;
+  }
+  return resolveReplyStyleForRun({
+    channel: params.entry.lastChannel ?? params.entry.channel,
+    provider,
+    model,
+  });
 }
 
 export async function persistSessionUsageUpdate(params: {
@@ -90,6 +107,7 @@ export async function persistSessionUsageUpdate(params: {
             systemPromptReport: params.systemPromptReport ?? entry.systemPromptReport,
             updatedAt: Date.now(),
           };
+          patch.replyStyle = resolvePersistedReplyStyle({ entry, patch });
           if (hasUsage) {
             patch.inputTokens = params.usage?.input ?? 0;
             patch.outputTokens = params.usage?.output ?? 0;
@@ -125,6 +143,7 @@ export async function persistSessionUsageUpdate(params: {
             systemPromptReport: params.systemPromptReport ?? entry.systemPromptReport,
             updatedAt: Date.now(),
           };
+          patch.replyStyle = resolvePersistedReplyStyle({ entry, patch });
           return applyCliSessionIdToSessionPatch(params, entry, patch);
         },
       });
