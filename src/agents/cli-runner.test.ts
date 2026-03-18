@@ -107,6 +107,69 @@ describe("runCliAgent with process supervisor", () => {
     expect(input.scopeKey).toContain("thread-123");
   });
 
+  it("passes codex thinking via model_reasoning_effort config override", async () => {
+    supervisorSpawnMock.mockResolvedValueOnce(
+      createManagedRun({
+        reason: "exit",
+        exitCode: 0,
+        exitSignal: null,
+        durationMs: 50,
+        stdout: "ok",
+        stderr: "",
+        timedOut: false,
+        noOutputTimedOut: false,
+      }),
+    );
+
+    await runCliAgent({
+      sessionId: "s1",
+      sessionFile: "/tmp/session.jsonl",
+      workspaceDir: "/tmp",
+      prompt: "hi",
+      provider: "codex-cli",
+      model: "gpt-5.3-codex-spark",
+      thinkLevel: "medium",
+      timeoutMs: 1_000,
+      runId: "run-thinking-medium",
+      cliSessionId: "thread-123",
+    });
+
+    const input = supervisorSpawnMock.mock.calls[0]?.[0] as { argv?: string[] };
+    expect(input.argv).toContain("-c");
+    expect(input.argv).toContain('model_reasoning_effort="medium"');
+  });
+
+  it("maps off thinking to Codex none reasoning effort", async () => {
+    supervisorSpawnMock.mockResolvedValueOnce(
+      createManagedRun({
+        reason: "exit",
+        exitCode: 0,
+        exitSignal: null,
+        durationMs: 50,
+        stdout: "ok",
+        stderr: "",
+        timedOut: false,
+        noOutputTimedOut: false,
+      }),
+    );
+
+    await runCliAgent({
+      sessionId: "s1",
+      sessionFile: "/tmp/session.jsonl",
+      workspaceDir: "/tmp",
+      prompt: "hi",
+      provider: "codex-cli",
+      model: "gpt-5.3-codex-spark",
+      thinkLevel: "off",
+      timeoutMs: 1_000,
+      runId: "run-thinking-off",
+      cliSessionId: "thread-123",
+    });
+
+    const input = supervisorSpawnMock.mock.calls[0]?.[0] as { argv?: string[] };
+    expect(input.argv).toContain('model_reasoning_effort="none"');
+  });
+
   it("fails with timeout when no-output watchdog trips", async () => {
     supervisorSpawnMock.mockResolvedValueOnce(
       createManagedRun({

@@ -461,6 +461,7 @@ export const CliBackendSchema = z
     clearEnv: z.array(z.string()).optional(),
     modelArg: z.string().optional(),
     modelAliases: z.record(z.string(), z.string()).optional(),
+    thinkingConfigKey: z.string().optional(),
     sessionArg: z.string().optional(),
     sessionArgs: z.array(z.string()).optional(),
     resumeArgs: z.array(z.string()).optional(),

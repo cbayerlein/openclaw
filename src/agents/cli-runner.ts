@@ -233,6 +233,7 @@ export async function runCliAgent(params: {
       backend,
       baseArgs: resolvedArgs,
       modelId: normalizedModel,
+      thinkLevel: params.thinkLevel,
       sessionId: resolvedSessionId,
       systemPrompt: systemPromptArg,
       imagePaths,
