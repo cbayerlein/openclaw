@@ -12,8 +12,11 @@ import { splitArgsPreservingQuotes } from "./arg-split.js";
 import { parseSystemdExecStart } from "./systemd-unit.js";
 import {
   isNonFatalSystemdInstallProbeError,
+  isSystemdSystemServiceEnabled,
   isSystemdUserServiceAvailable,
   parseSystemdShow,
+  readSystemdSystemServiceExecStart,
+  readSystemdSystemServiceRuntime,
   readSystemdServiceExecStart,
   restartSystemdService,
   resolveSystemdUserUnitPath,
@@ -322,6 +325,102 @@ describe("isSystemdServiceEnabled", () => {
     });
     const result = await isSystemdServiceEnabled({ env: { HOME: "/tmp/openclaw-test-home" } });
     expect(result).toBe(false);
+  });
+});
+
+describe("systemd system service inspection", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    execFileMock.mockReset();
+  });
+
+  it("reads system service exec start and environment files from systemctl show", async () => {
+    vi.spyOn(fs, "readFile").mockImplementation(async (pathname) => {
+      const pathValue = pathLikeToString(pathname);
+      if (pathValue === "/etc/openclaw/gateway.env") {
+        return "PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin\nOPENCLAW_STATE_DIR=/var/lib/openclaw/state\n";
+      }
+      throw new Error(`unexpected readFile path: ${pathValue}`);
+    });
+    execFileMock.mockImplementationOnce((_cmd, args, _opts, cb) => {
+      expect(args).toEqual([
+        "show",
+        GATEWAY_SERVICE,
+        "--no-page",
+        "--property",
+        "FragmentPath,ExecStart,EnvironmentFiles",
+      ]);
+      cb(
+        null,
+        [
+          "ExecStart={ path=/usr/bin/node ; argv[]=/usr/bin/node /root/openclaw/dist/entry.js gateway --port 18789 ; ignore_errors=no ; pid=123 ; code=(null) ; status=0/0 }",
+          "EnvironmentFiles=/etc/openclaw/gateway.env (ignore_errors=no)",
+          "FragmentPath=/etc/systemd/system/openclaw-gateway.service",
+        ].join("\n"),
+        "",
+      );
+    });
+
+    const command = await readSystemdSystemServiceExecStart({ HOME: TEST_SERVICE_HOME });
+
+    expect(command).toMatchObject({
+      programArguments: [
+        "/usr/bin/node",
+        "/root/openclaw/dist/entry.js",
+        "gateway",
+        "--port",
+        "18789",
+      ],
+      sourcePath: "/etc/systemd/system/openclaw-gateway.service",
+      environment: {
+        PATH: "/root/.local/bin:/usr/local/bin:/usr/bin:/bin",
+        OPENCLAW_STATE_DIR: "/var/lib/openclaw/state",
+      },
+      environmentValueSources: {
+        PATH: "file",
+        OPENCLAW_STATE_DIR: "file",
+      },
+    });
+  });
+
+  it("reads system service enabled and runtime state via plain systemctl", async () => {
+    execFileMock
+      .mockImplementationOnce((_cmd, args, _opts, cb) => {
+        expect(args).toEqual(["is-enabled", GATEWAY_SERVICE]);
+        cb(null, "enabled\n", "");
+      })
+      .mockImplementationOnce((_cmd, args, _opts, cb) => {
+        expect(args).toEqual([
+          "show",
+          GATEWAY_SERVICE,
+          "--no-page",
+          "--property",
+          "ActiveState,SubState,MainPID,ExecMainStatus,ExecMainCode",
+        ]);
+        cb(
+          null,
+          [
+            "ActiveState=active",
+            "SubState=running",
+            "MainPID=285953",
+            "ExecMainStatus=0",
+            "ExecMainCode=0",
+          ].join("\n"),
+          "",
+        );
+      });
+
+    await expect(isSystemdSystemServiceEnabled({ env: { HOME: TEST_SERVICE_HOME } })).resolves.toBe(
+      true,
+    );
+    await expect(
+      readSystemdSystemServiceRuntime({ HOME: TEST_SERVICE_HOME }),
+    ).resolves.toMatchObject({
+      status: "running",
+      state: "active",
+      subState: "running",
+      pid: 285953,
+    });
   });
 });
 

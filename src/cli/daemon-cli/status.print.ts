@@ -284,7 +284,17 @@ export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean })
     for (const svc of extraServices) {
       defaultRuntime.error(`- ${errorText(svc.label)} (${svc.scope}, ${svc.detail})`);
     }
-    for (const hint of renderGatewayServiceCleanupHints()) {
+    const linuxScopes =
+      process.platform === "linux"
+        ? Array.from(
+            new Set(
+              extraServices
+                .map((svc) => svc.scope)
+                .filter((scope) => scope === "user" || scope === "system"),
+            ),
+          )
+        : undefined;
+    for (const hint of renderGatewayServiceCleanupHints(process.env, { linuxScopes })) {
       defaultRuntime.error(`${errorText("Cleanup hint:")} ${hint}`);
     }
     spacer();

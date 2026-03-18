@@ -35,6 +35,11 @@ const resolveGatewayBindHost = vi.fn(
 );
 const pickPrimaryTailnetIPv4 = vi.fn(() => "100.64.0.9");
 const resolveGatewayPort = vi.fn((_cfg?: unknown, _env?: unknown) => 18789);
+const readSystemdSystemServiceExecStart = vi.fn(async (_env?: NodeJS.ProcessEnv) => null);
+const isSystemdSystemServiceEnabled = vi.fn(async (_opts?: unknown) => false);
+const readSystemdSystemServiceRuntime = vi.fn(async (_env?: NodeJS.ProcessEnv) => ({
+  status: "stopped",
+}));
 const resolveStateDir = vi.fn(
   (env: NodeJS.ProcessEnv) => env.OPENCLAW_STATE_DIR ?? "/tmp/openclaw-cli",
 );
@@ -82,6 +87,14 @@ vi.mock("../../daemon/inspect.js", () => ({
 
 vi.mock("../../daemon/service-audit.js", () => ({
   auditGatewayServiceConfig: (opts: unknown) => auditGatewayServiceConfig(opts),
+}));
+
+vi.mock("../../daemon/systemd.js", () => ({
+  readSystemdSystemServiceExecStart: (env?: NodeJS.ProcessEnv) =>
+    readSystemdSystemServiceExecStart(env),
+  isSystemdSystemServiceEnabled: (opts?: unknown) => isSystemdSystemServiceEnabled(opts),
+  readSystemdSystemServiceRuntime: (env?: NodeJS.ProcessEnv) =>
+    readSystemdSystemServiceRuntime(env),
 }));
 
 vi.mock("../../daemon/service.js", () => ({
@@ -151,6 +164,9 @@ describe("gatherDaemonStatus", () => {
         bind: "loopback",
       },
     };
+    readSystemdSystemServiceExecStart.mockClear();
+    isSystemdSystemServiceEnabled.mockClear();
+    readSystemdSystemServiceRuntime.mockClear();
   });
 
   afterEach(() => {
@@ -224,6 +240,59 @@ describe("gatherDaemonStatus", () => {
       status: "running",
       detail: "19001",
     });
+  });
+
+  it("falls back to a systemd system service when no user unit is managed", async () => {
+    serviceReadCommand.mockResolvedValueOnce(null as never);
+    serviceIsLoaded.mockResolvedValueOnce(false);
+    serviceReadRuntime.mockResolvedValueOnce({ status: "stopped", state: "inactive" });
+    readSystemdSystemServiceExecStart.mockResolvedValueOnce({
+      programArguments: [
+        "/usr/bin/node",
+        "/root/openclaw/dist/entry.js",
+        "gateway",
+        "--port",
+        "18789",
+      ],
+      sourcePath: "/etc/systemd/system/openclaw-gateway.service",
+      environment: {
+        PATH: "/root/.local/bin:/usr/local/bin:/usr/bin:/bin",
+        OPENCLAW_STATE_DIR: "/tmp/openclaw-daemon",
+        OPENCLAW_CONFIG_PATH: "/tmp/openclaw-daemon/openclaw.json",
+      },
+    });
+    isSystemdSystemServiceEnabled.mockResolvedValueOnce(true);
+    readSystemdSystemServiceRuntime.mockResolvedValueOnce({
+      status: "running",
+      state: "active",
+      subState: "running",
+      pid: 1234,
+    });
+
+    const status = await gatherDaemonStatus({
+      rpc: {},
+      probe: false,
+      deep: false,
+    });
+
+    expect(status.service.loaded).toBe(true);
+    expect(status.service.runtime).toMatchObject({
+      status: "running",
+      pid: 1234,
+    });
+    expect(status.service.command).toMatchObject({
+      sourcePath: "/etc/systemd/system/openclaw-gateway.service",
+      environment: expect.objectContaining({
+        PATH: "/root/.local/bin:/usr/local/bin:/usr/bin:/bin",
+      }),
+    });
+    expect(auditGatewayServiceConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          sourcePath: "/etc/systemd/system/openclaw-gateway.service",
+        }),
+      }),
+    );
   });
 
   it("resolves daemon gateway auth password SecretRef values before probing", async () => {

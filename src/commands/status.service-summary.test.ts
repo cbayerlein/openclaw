@@ -3,6 +3,12 @@ import type { GatewayService } from "../daemon/service.js";
 import type { GatewayServiceEnvArgs } from "../daemon/service.js";
 import { readServiceStatusSummary } from "./status.service-summary.js";
 
+vi.mock("../daemon/systemd.js", () => ({
+  readSystemdSystemServiceExecStart: vi.fn(async () => null),
+  isSystemdSystemServiceEnabled: vi.fn(async () => false),
+  readSystemdSystemServiceRuntime: vi.fn(async () => ({ status: "stopped" })),
+}));
+
 function createService(overrides: Partial<GatewayService>): GatewayService {
   return {
     label: "systemd",

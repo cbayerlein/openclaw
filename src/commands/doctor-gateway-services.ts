@@ -436,7 +436,17 @@ export async function maybeScanExtraGatewayServices(
     }
   }
 
-  const cleanupHints = renderGatewayServiceCleanupHints();
+  const linuxScopes =
+    process.platform === "linux"
+      ? Array.from(
+          new Set(
+            extraServices
+              .map((svc) => svc.scope)
+              .filter((scope) => scope === "user" || scope === "system"),
+          ),
+        )
+      : undefined;
+  const cleanupHints = renderGatewayServiceCleanupHints(process.env, { linuxScopes });
   if (cleanupHints.length > 0) {
     note(cleanupHints.map((hint) => `- ${hint}`).join("\n"), "Cleanup hints");
   }

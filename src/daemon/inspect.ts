@@ -23,10 +23,15 @@ export type FindExtraGatewayServicesOptions = {
   deep?: boolean;
 };
 
+export type GatewayServiceCleanupHintOptions = {
+  linuxScopes?: Array<"user" | "system">;
+};
+
 const EXTRA_MARKERS = ["openclaw", "clawdbot", "moltbot"] as const;
 
 export function renderGatewayServiceCleanupHints(
   env: Record<string, string | undefined> = process.env as Record<string, string | undefined>,
+  opts: GatewayServiceCleanupHintOptions = {},
 ): string[] {
   const profile = env.OPENCLAW_PROFILE;
   switch (process.platform) {
@@ -36,10 +41,19 @@ export function renderGatewayServiceCleanupHints(
     }
     case "linux": {
       const unit = resolveGatewaySystemdServiceName(profile);
-      return [
-        `systemctl --user disable --now ${unit}.service`,
-        `rm ~/.config/systemd/user/${unit}.service`,
-      ];
+      const scopes = new Set(
+        Array.from(new Set(opts.linuxScopes?.length ? opts.linuxScopes : ["user"])),
+      );
+      const hints: string[] = [];
+      if (scopes.has("user")) {
+        hints.push(`systemctl --user disable --now ${unit}.service`);
+        hints.push(`rm ~/.config/systemd/user/${unit}.service`);
+      }
+      if (scopes.has("system")) {
+        hints.push(`sudo systemctl disable --now ${unit}.service`);
+        hints.push(`sudo rm /etc/systemd/system/${unit}.service`);
+      }
+      return hints;
     }
     case "win32": {
       const task = resolveGatewayWindowsTaskName(profile);
