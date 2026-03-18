@@ -124,8 +124,9 @@ function isRestartSecPreferred(value: string | undefined): boolean {
 async function auditSystemdUnit(
   env: Record<string, string | undefined>,
   issues: ServiceConfigIssue[],
+  command?: GatewayServiceCommand,
 ) {
-  const unitPath = resolveSystemdUserUnitPath(env);
+  const unitPath = command?.sourcePath ?? resolveSystemdUserUnitPath(env);
   let content = "";
   try {
     content = await fs.readFile(unitPath, "utf8");
@@ -414,7 +415,7 @@ export async function auditGatewayServiceConfig(params: {
   await auditGatewayRuntime(params.env, params.command, issues, platform);
 
   if (platform === "linux") {
-    await auditSystemdUnit(params.env, issues);
+    await auditSystemdUnit(params.env, issues, params.command);
   } else if (platform === "darwin") {
     await auditLaunchdPlist(params.env, issues);
   }

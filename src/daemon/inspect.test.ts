@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { findExtraGatewayServices } from "./inspect.js";
+import { findExtraGatewayServices, renderGatewayServiceCleanupHints } from "./inspect.js";
 
 const { execSchtasksMock } = vi.hoisted(() => ({
   execSchtasksMock: vi.fn(),
@@ -82,6 +82,62 @@ describe("findExtraGatewayServices (win32)", () => {
         marker: "moltbot",
         legacy: true,
       },
+    ]);
+  });
+});
+
+describe("renderGatewayServiceCleanupHints", () => {
+  const originalPlatform = process.platform;
+
+  afterEach(() => {
+    Object.defineProperty(process, "platform", {
+      configurable: true,
+      value: originalPlatform,
+    });
+  });
+
+  it("renders linux user cleanup hints by default", () => {
+    Object.defineProperty(process, "platform", {
+      configurable: true,
+      value: "linux",
+    });
+
+    expect(renderGatewayServiceCleanupHints({ OPENCLAW_PROFILE: "" })).toEqual([
+      "systemctl --user disable --now openclaw-gateway.service",
+      "rm ~/.config/systemd/user/openclaw-gateway.service",
+    ]);
+  });
+
+  it("renders linux system cleanup hints when system scope is requested", () => {
+    Object.defineProperty(process, "platform", {
+      configurable: true,
+      value: "linux",
+    });
+
+    expect(
+      renderGatewayServiceCleanupHints({ OPENCLAW_PROFILE: "" }, { linuxScopes: ["system"] }),
+    ).toEqual([
+      "sudo systemctl disable --now openclaw-gateway.service",
+      "sudo rm /etc/systemd/system/openclaw-gateway.service",
+    ]);
+  });
+
+  it("renders both linux user and system cleanup hints for mixed scopes", () => {
+    Object.defineProperty(process, "platform", {
+      configurable: true,
+      value: "linux",
+    });
+
+    expect(
+      renderGatewayServiceCleanupHints(
+        { OPENCLAW_PROFILE: "" },
+        { linuxScopes: ["user", "system"] },
+      ),
+    ).toEqual([
+      "systemctl --user disable --now openclaw-gateway.service",
+      "rm ~/.config/systemd/user/openclaw-gateway.service",
+      "sudo systemctl disable --now openclaw-gateway.service",
+      "sudo rm /etc/systemd/system/openclaw-gateway.service",
     ]);
   });
 });

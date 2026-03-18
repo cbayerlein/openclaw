@@ -258,6 +258,12 @@ async function execSystemctl(
   return await execFileUtf8("systemctl", args);
 }
 
+async function execSystemctlSystem(
+  args: string[],
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  return await execSystemctl(args);
+}
+
 function readSystemctlDetail(result: { stdout: string; stderr: string }): string {
   // Concatenate both streams so pattern matchers (isSystemdUnitNotEnabled,
   // isSystemctlMissing) can see the unit status from stdout even when
@@ -605,6 +611,94 @@ export async function isSystemdServiceEnabled(args: GatewayServiceEnvArgs): Prom
   throw new Error(`systemctl is-enabled unavailable: ${detail || "unknown error"}`.trim());
 }
 
+function parseSystemdShowExecStartArgs(value: string): string[] {
+  const match = value.match(/argv\[\]=(.+?)\s*;\s*ignore_errors=/);
+  if (!match?.[1]) {
+    return [];
+  }
+  return splitArgsPreservingQuotes(match[1].trim(), { escapeMode: "backslash" });
+}
+
+function parseSystemdShowEnvironmentFiles(value: string): string[] {
+  if (!value.trim()) {
+    return [];
+  }
+  const matches = value.matchAll(/(?:^|;)\s*([^;(][^;]*?)\s+\(ignore_errors=/g);
+  return Array.from(matches, (match) => match[1]?.trim() ?? "").filter(Boolean);
+}
+
+async function readSystemdServiceExecStartFromScope(params: {
+  env: GatewayServiceEnv;
+  scope: "user" | "system";
+}): Promise<GatewayServiceCommandConfig | null> {
+  const serviceName = resolveSystemdServiceName(params.env);
+  const unitName = `${serviceName}.service`;
+  const res =
+    params.scope === "user"
+      ? await execSystemctlUser(params.env, [
+          "show",
+          unitName,
+          "--no-page",
+          "--property",
+          "FragmentPath,ExecStart,EnvironmentFiles",
+        ])
+      : await execSystemctlSystem([
+          "show",
+          unitName,
+          "--no-page",
+          "--property",
+          "FragmentPath,ExecStart,EnvironmentFiles",
+        ]);
+  if (res.code !== 0) {
+    return null;
+  }
+  const parsed = parseKeyValueOutput(res.stdout || "", "=");
+  const programArguments = parseSystemdShowExecStartArgs(parsed.execstart ?? "");
+  if (programArguments.length === 0) {
+    return null;
+  }
+  const environmentFileSpecs = parseSystemdShowEnvironmentFiles(parsed.environmentfiles ?? "");
+  const sourcePath = parsed.fragmentpath?.trim() || undefined;
+  const environmentFromFiles =
+    sourcePath && environmentFileSpecs.length > 0
+      ? await resolveSystemdEnvironmentFiles({
+          environmentFileSpecs,
+          env: params.env,
+          unitPath: sourcePath,
+        })
+      : { environment: {} };
+  const environment = environmentFromFiles.environment;
+  return {
+    programArguments,
+    ...(Object.keys(environment).length > 0 ? { environment } : {}),
+    ...(Object.keys(environment).length > 0
+      ? { environmentValueSources: buildEnvironmentValueSources(environment, "file") }
+      : {}),
+    ...(sourcePath ? { sourcePath } : {}),
+  };
+}
+
+export async function readSystemdSystemServiceExecStart(
+  env: GatewayServiceEnv = process.env as GatewayServiceEnv,
+): Promise<GatewayServiceCommandConfig | null> {
+  return await readSystemdServiceExecStartFromScope({ env, scope: "system" });
+}
+
+export async function isSystemdSystemServiceEnabled(args: GatewayServiceEnvArgs): Promise<boolean> {
+  const env = args.env ?? process.env;
+  const serviceName = resolveSystemdServiceName(env);
+  const unitName = `${serviceName}.service`;
+  const res = await execSystemctlSystem(["is-enabled", unitName]);
+  if (res.code === 0) {
+    return true;
+  }
+  const detail = readSystemctlDetail(res);
+  if (isSystemctlMissing(detail) || isSystemdUnitNotEnabled(detail)) {
+    return false;
+  }
+  throw new Error(`systemctl is-enabled unavailable: ${detail || "unknown error"}`.trim());
+}
+
 export async function readSystemdServiceRuntime(
   env: GatewayServiceEnv = process.env as GatewayServiceEnv,
 ): Promise<GatewayServiceRuntime> {
@@ -619,6 +713,40 @@ export async function readSystemdServiceRuntime(
   const serviceName = resolveSystemdServiceName(env);
   const unitName = `${serviceName}.service`;
   const res = await execSystemctlUser(env, [
+    "show",
+    unitName,
+    "--no-page",
+    "--property",
+    "ActiveState,SubState,MainPID,ExecMainStatus,ExecMainCode",
+  ]);
+  if (res.code !== 0) {
+    const detail = (res.stderr || res.stdout).trim();
+    const missing = detail.toLowerCase().includes("not found");
+    return {
+      status: missing ? "stopped" : "unknown",
+      detail: detail || undefined,
+      missingUnit: missing,
+    };
+  }
+  const parsed = parseSystemdShow(res.stdout || "");
+  const activeState = parsed.activeState?.toLowerCase();
+  const status = activeState === "active" ? "running" : activeState ? "stopped" : "unknown";
+  return {
+    status,
+    state: parsed.activeState,
+    subState: parsed.subState,
+    pid: parsed.mainPid,
+    lastExitStatus: parsed.execMainStatus,
+    lastExitReason: parsed.execMainCode,
+  };
+}
+
+export async function readSystemdSystemServiceRuntime(
+  env: GatewayServiceEnv = process.env as GatewayServiceEnv,
+): Promise<GatewayServiceRuntime> {
+  const serviceName = resolveSystemdServiceName(env);
+  const unitName = `${serviceName}.service`;
+  const res = await execSystemctlSystem([
     "show",
     unitName,
     "--no-page",

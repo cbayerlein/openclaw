@@ -16,6 +16,11 @@ import type { ServiceConfigAudit } from "../../daemon/service-audit.js";
 import { auditGatewayServiceConfig } from "../../daemon/service-audit.js";
 import type { GatewayServiceRuntime } from "../../daemon/service-runtime.js";
 import { resolveGatewayService } from "../../daemon/service.js";
+import {
+  isSystemdSystemServiceEnabled,
+  readSystemdSystemServiceExecStart,
+  readSystemdSystemServiceRuntime,
+} from "../../daemon/systemd.js";
 import { trimToUndefined } from "../../gateway/credentials.js";
 import { resolveGatewayBindHost } from "../../gateway/net.js";
 import { resolveGatewayProbeAuthWithSecretInputs } from "../../gateway/probe-auth.js";
@@ -258,17 +263,38 @@ export async function gatherDaemonStatus(
   } & FindExtraGatewayServicesOptions,
 ): Promise<DaemonStatus> {
   const service = resolveGatewayService();
-  const command = await service.readCommand(process.env).catch(() => null);
-  const serviceEnv = command?.environment
+  let command = await service.readCommand(process.env).catch(() => null);
+  let serviceEnv = command?.environment
     ? ({
         ...process.env,
         ...command.environment,
       } satisfies NodeJS.ProcessEnv)
     : process.env;
-  const [loaded, runtime] = await Promise.all([
+  let [loaded, runtime] = await Promise.all([
     service.isLoaded({ env: serviceEnv }).catch(() => false),
     service.readRuntime(serviceEnv).catch((err) => ({ status: "unknown", detail: String(err) })),
   ]);
+  if (process.platform === "linux" && !command && runtime?.status !== "running") {
+    const [systemCommand, systemLoaded, systemRuntime] = await Promise.all([
+      readSystemdSystemServiceExecStart(process.env).catch(() => null),
+      isSystemdSystemServiceEnabled({ env: process.env }).catch(() => false),
+      readSystemdSystemServiceRuntime(process.env).catch((err) => ({
+        status: "unknown",
+        detail: String(err),
+      })),
+    ]);
+    if (systemCommand || systemLoaded || systemRuntime.status === "running") {
+      command = systemCommand;
+      serviceEnv = systemCommand?.environment
+        ? ({
+            ...process.env,
+            ...systemCommand.environment,
+          } satisfies NodeJS.ProcessEnv)
+        : process.env;
+      loaded = systemLoaded;
+      runtime = systemRuntime;
+    }
+  }
   const configAudit = await auditGatewayServiceConfig({
     env: process.env,
     command,
