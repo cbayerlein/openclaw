@@ -147,4 +147,43 @@ describe("applyModelDefaults", () => {
     const model = next.models?.providers?.myproxy?.models?.[0];
     expect(model?.api).toBe("openai-completions");
   });
+
+  it("defaults sparse openai-codex forward-compat models to reasoning enabled", () => {
+    const cfg = {
+      models: {
+        providers: {
+          "openai-codex": {
+            baseUrl: "https://chatgpt.com/backend-api",
+            api: "openai-codex-responses",
+            models: [
+              {
+                id: "gpt-5.4",
+                name: "GPT-5.4",
+                contextWindow: 1_050_000,
+                maxTokens: 128_000,
+              },
+              {
+                id: "gpt-5.3-codex",
+                name: "GPT-5.3-Codex",
+                contextWindow: 400_000,
+                maxTokens: 128_000,
+              },
+              {
+                id: "gpt-5.3-codex-spark",
+                name: "GPT-5.3-Codex-Spark",
+                contextWindow: 128_000,
+              },
+            ],
+          },
+        },
+      },
+    } satisfies OpenClawConfig;
+
+    const next = applyModelDefaults(cfg);
+    const models = next.models?.providers?.["openai-codex"]?.models ?? [];
+
+    expect(models.find((model) => model.id === "gpt-5.4")?.reasoning).toBe(true);
+    expect(models.find((model) => model.id === "gpt-5.3-codex")?.reasoning).toBe(true);
+    expect(models.find((model) => model.id === "gpt-5.3-codex-spark")?.reasoning).toBe(true);
+  });
 });

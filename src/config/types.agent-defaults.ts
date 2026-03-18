@@ -65,6 +65,8 @@ export type CliBackendConfig = {
   modelArg?: string;
   /** Model aliases mapping (config model id → CLI model id). */
   modelAliases?: Record<string, string>;
+  /** Config key used to pass reasoning effort/thinking level. */
+  thinkingConfigKey?: string;
   /** Flag used to pass session id (e.g. --session-id). */
   sessionArg?: string;
   /** Extra args used when resuming a session (use {sessionId} placeholder). */
