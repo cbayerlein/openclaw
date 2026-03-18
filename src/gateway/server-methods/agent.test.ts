@@ -192,10 +192,19 @@ function readLastAgentCommandCall():
   | {
       message?: string;
       sessionId?: string;
+      newSession?: boolean;
+      model?: string;
+      persistModel?: boolean;
     }
   | undefined {
   return mocks.agentCommand.mock.calls.at(-1)?.[0] as
-    | { message?: string; sessionId?: string }
+    | {
+        message?: string;
+        sessionId?: string;
+        newSession?: boolean;
+        model?: string;
+        persistModel?: boolean;
+      }
     | undefined;
 }
 
@@ -380,6 +389,32 @@ describe("gateway agent handler", () => {
       | { senderIsOwner?: boolean }
       | undefined;
     expect(callArgs?.senderIsOwner).toBe(senderIsOwner);
+  });
+
+  it("forwards model overrides to agentCommand", async () => {
+    primeMainAgentRun();
+
+    await invokeAgent(
+      {
+        message: "use a different model",
+        sessionKey: "agent:main:main",
+        model: "openai/gpt-5.2",
+        idempotencyKey: "test-model-override",
+      },
+      {
+        client: {
+          connect: {
+            role: "operator",
+            scopes: ["operator.admin"],
+            client: { id: "test-client", mode: "gateway" },
+          },
+        } as unknown as AgentHandlerArgs["client"],
+      },
+    );
+
+    await vi.waitFor(() => expect(mocks.agentCommand).toHaveBeenCalled());
+    const callArgs = mocks.agentCommand.mock.calls.at(-1)?.[0] as { model?: string } | undefined;
+    expect(callArgs?.model).toBe("openai/gpt-5.2");
   });
 
   it("respects explicit bestEffortDeliver=false for main session runs", async () => {
@@ -610,6 +645,29 @@ describe("gateway agent handler", () => {
     expect(call?.sessionId).toBe("reset-session-id");
 
     resetTimeConfig();
+  });
+
+  it("forwards new-session and persist-model flags to agent runs", async () => {
+    primeMainAgentRun();
+
+    await invokeAgent(
+      {
+        message: "test",
+        sessionKey: "agent:main:main",
+        model: "openai/gpt-5.4",
+        persistModel: true,
+        newSession: true,
+        idempotencyKey: "test-new-session-flags",
+      },
+      { reqId: "flags" },
+    );
+
+    await vi.waitFor(() => expect(mocks.agentCommand).toHaveBeenCalled());
+    const call = readLastAgentCommandCall();
+    expect(call?.newSession).toBe(true);
+    expect(call?.sessionId).toBeUndefined();
+    expect(call?.model).toBe("openai/gpt-5.4");
+    expect(call?.persistModel).toBe(true);
   });
 
   it("rejects malformed agent session keys early in agent handler", async () => {

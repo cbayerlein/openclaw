@@ -99,10 +99,25 @@ describe("agentCliCommand", () => {
     await withTempStore(async () => {
       mockGatewaySuccessReply();
 
-      await agentCliCommand({ message: "hi", to: "+1555" }, runtime);
+      await agentCliCommand(
+        {
+          message: "hi",
+          to: "+1555",
+          model: "openai/gpt-5.2",
+          persistModel: true,
+          newSession: true,
+        },
+        runtime,
+      );
 
       expect(callGateway).toHaveBeenCalledTimes(1);
       expect(agentCommand).not.toHaveBeenCalled();
+      const request = vi.mocked(callGateway).mock.calls[0]?.[0] as {
+        params?: { model?: string; persistModel?: boolean; newSession?: boolean };
+      };
+      expect(request.params?.model).toBe("openai/gpt-5.2");
+      expect(request.params?.persistModel).toBe(true);
+      expect(request.params?.newSession).toBe(true);
       expect(runtime.log).toHaveBeenCalledWith("hello");
     });
   });
@@ -112,10 +127,21 @@ describe("agentCliCommand", () => {
       vi.mocked(callGateway).mockRejectedValue(new Error("gateway not connected"));
       mockLocalAgentReply();
 
-      await agentCliCommand({ message: "hi", to: "+1555" }, runtime);
+      await agentCliCommand(
+        { message: "hi", to: "+1555", model: "opus", persistModel: true, newSession: true },
+        runtime,
+      );
 
       expect(callGateway).toHaveBeenCalledTimes(1);
       expect(agentCommand).toHaveBeenCalledTimes(1);
+      const localCall = vi.mocked(agentCommand).mock.calls[0]?.[0] as {
+        model?: string;
+        persistModel?: boolean;
+        newSession?: boolean;
+      };
+      expect(localCall.model).toBe("opus");
+      expect(localCall.persistModel).toBe(true);
+      expect(localCall.newSession).toBe(true);
       expect(runtime.log).toHaveBeenCalledWith("local");
     });
   });
@@ -128,6 +154,9 @@ describe("agentCliCommand", () => {
         {
           message: "hi",
           to: "+1555",
+          model: "openai/gpt-5.2",
+          persistModel: true,
+          newSession: true,
           local: true,
         },
         runtime,
@@ -135,6 +164,14 @@ describe("agentCliCommand", () => {
 
       expect(callGateway).not.toHaveBeenCalled();
       expect(agentCommand).toHaveBeenCalledTimes(1);
+      const localCall = vi.mocked(agentCommand).mock.calls[0]?.[0] as {
+        model?: string;
+        persistModel?: boolean;
+        newSession?: boolean;
+      };
+      expect(localCall.model).toBe("openai/gpt-5.2");
+      expect(localCall.persistModel).toBe(true);
+      expect(localCall.newSession).toBe(true);
       expect(runtime.log).toHaveBeenCalledWith("local");
     });
   });

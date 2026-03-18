@@ -166,6 +166,9 @@ export const agentHandlers: GatewayRequestHandlers = {
       replyTo?: string;
       sessionId?: string;
       sessionKey?: string;
+      newSession?: boolean;
+      model?: string;
+      persistModel?: boolean;
       thinking?: string;
       deliver?: boolean;
       attachments?: Array<{
@@ -216,6 +219,28 @@ export const agentHandlers: GatewayRequestHandlers = {
       typeof request.bestEffortDeliver === "boolean" ? request.bestEffortDeliver : undefined;
 
     let message = (request.message ?? "").trim();
+    if (request.newSession && request.sessionId?.trim()) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "invalid agent params: --new-session cannot be combined with --session-id",
+        ),
+      );
+      return;
+    }
+    if (request.persistModel && !request.model?.trim()) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "invalid agent params: --persist-model requires --model",
+        ),
+      );
+      return;
+    }
     let images: Array<{ type: "image"; data: string; mimeType: string }> = [];
     if (normalizedAttachments.length > 0) {
       try {
@@ -417,12 +442,12 @@ export const agentHandlers: GatewayRequestHandlers = {
         );
         return;
       }
-      resolvedSessionId = sessionId;
+      resolvedSessionId = request.newSession ? undefined : sessionId;
       const canonicalSessionKey = canonicalKey;
       resolvedSessionKey = canonicalSessionKey;
       const agentId = resolveAgentIdFromSessionKey(canonicalSessionKey);
       const mainSessionKey = resolveAgentMainSessionKey({ cfg, agentId });
-      if (storePath) {
+      if (storePath && request.newSession !== true) {
         const persisted = await updateSessionStore(storePath, (store) => {
           const { primaryKey } = migrateAndPruneGatewaySessionStoreKey({
             cfg,
@@ -587,6 +612,9 @@ export const agentHandlers: GatewayRequestHandlers = {
         to: resolvedTo,
         sessionId: resolvedSessionId,
         sessionKey: resolvedSessionKey,
+        newSession: request.newSession,
+        model: request.model,
+        persistModel: request.persistModel,
         thinking: request.thinking,
         deliver,
         deliveryTargetMode,

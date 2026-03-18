@@ -42,6 +42,9 @@ export type AgentCommandOpts = {
   to?: string;
   sessionId?: string;
   sessionKey?: string;
+  newSession?: boolean;
+  model?: string;
+  persistModel?: boolean;
   thinking?: string;
   thinkingOnce?: string;
   verbose?: string;

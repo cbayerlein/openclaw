@@ -932,14 +932,8 @@ export async function runEmbeddedPiAgent(
               bootstrapPromptWarningSignaturesSeen[bootstrapPromptWarningSignaturesSeen.length - 1],
           });
 
-          const {
-            aborted,
-            promptError,
-            timedOut,
-            timedOutDuringCompaction,
-            sessionIdUsed,
-            lastAssistant,
-          } = attempt;
+          const { aborted, promptError, timedOut, timedOutDuringCompaction, lastAssistant } =
+            attempt;
           bootstrapPromptWarningSignaturesSeen =
             attempt.bootstrapPromptWarningSignaturesSeen ??
             (attempt.bootstrapPromptWarningSignature
@@ -1210,7 +1204,7 @@ export async function runEmbeddedPiAgent(
               meta: {
                 durationMs: Date.now() - started,
                 agentMeta: buildErrorAgentMeta({
-                  sessionId: sessionIdUsed,
+                  sessionId: params.sessionId,
                   provider,
                   model: model.id,
                   usageAccumulator,
@@ -1244,7 +1238,7 @@ export async function runEmbeddedPiAgent(
                 meta: {
                   durationMs: Date.now() - started,
                   agentMeta: buildErrorAgentMeta({
-                    sessionId: sessionIdUsed,
+                    sessionId: params.sessionId,
                     provider,
                     model: model.id,
                     usageAccumulator,
@@ -1276,7 +1270,7 @@ export async function runEmbeddedPiAgent(
                 meta: {
                   durationMs: Date.now() - started,
                   agentMeta: buildErrorAgentMeta({
-                    sessionId: sessionIdUsed,
+                    sessionId: params.sessionId,
                     provider,
                     model: model.id,
                     usageAccumulator,
@@ -1502,7 +1496,7 @@ export async function runEmbeddedPiAgent(
           const lastCallUsage = normalizeUsage(lastAssistant?.usage as UsageLike);
           const promptTokens = derivePromptTokens(lastRunPromptUsage);
           const agentMeta: EmbeddedPiAgentMeta = {
-            sessionId: sessionIdUsed,
+            sessionId: params.sessionId,
             provider: lastAssistant?.provider ?? provider,
             model: lastAssistant?.model ?? model.id,
             usage,

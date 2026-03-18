@@ -28,12 +28,14 @@ import { loadModelCatalog } from "../agents/model-catalog.js";
 import { runWithModelFallback } from "../agents/model-fallback.js";
 import {
   buildAllowedModelSet,
+  buildModelAliasIndex,
   isCliProvider,
   modelKey,
   normalizeModelRef,
   normalizeProviderId,
   resolveConfiguredModelRef,
   resolveDefaultModelForAgent,
+  resolveModelRefFromString,
   resolveThinkingDefault,
 } from "../agents/model-selection.js";
 import { prepareSessionManagerForRun } from "../agents/pi-embedded-runner/session-manager-init.js";
@@ -581,6 +583,9 @@ async function prepareAgentCommandExecution(
   if (opts.verbose && !verboseOverride) {
     throw new Error('Invalid verbose level. Use "on", "full", or "off".');
   }
+  if (opts.persistModel && !opts.model?.trim()) {
+    throw new Error("--persist-model requires --model.");
+  }
 
   const laneRaw = typeof opts.lane === "string" ? opts.lane.trim() : "";
   const isSubagentLane = laneRaw === String(AGENT_LANE_SUBAGENT);
@@ -607,6 +612,7 @@ async function prepareAgentCommandExecution(
     sessionId: opts.sessionId,
     sessionKey: opts.sessionKey,
     agentId: agentIdOverride,
+    newSession: opts.newSession,
   });
 
   const {
@@ -625,6 +631,55 @@ async function prepareAgentCommandExecution(
       sessionKey: sessionKey ?? opts.sessionKey?.trim(),
       config: cfg,
     });
+  const defaultModelRef = resolveDefaultModelForAgent({
+    cfg,
+    agentId: sessionAgentId,
+  });
+  const modelOverrideRaw = opts.model?.trim();
+  let explicitModelSelection:
+    | {
+        provider: string;
+        model: string;
+        isDefault: boolean;
+      }
+    | undefined;
+  if (modelOverrideRaw) {
+    const aliasIndex = buildModelAliasIndex({
+      cfg,
+      defaultProvider: defaultModelRef.provider,
+    });
+    const resolvedModelRef = resolveModelRefFromString({
+      raw: modelOverrideRaw,
+      defaultProvider: defaultModelRef.provider,
+      aliasIndex,
+    });
+    if (!resolvedModelRef) {
+      throw new Error(`Invalid model reference: ${modelOverrideRaw}`);
+    }
+    const modelCatalog = await loadModelCatalog({ config: cfg });
+    const allowed = buildAllowedModelSet({
+      cfg,
+      catalog: modelCatalog,
+      defaultProvider: defaultModelRef.provider,
+      defaultModel: defaultModelRef.model,
+      agentId: sessionAgentId,
+    });
+    const resolvedKey = modelKey(resolvedModelRef.ref.provider, resolvedModelRef.ref.model);
+    if (
+      !isCliProvider(resolvedModelRef.ref.provider, cfg) &&
+      !allowed.allowAny &&
+      !allowed.allowedKeys.has(resolvedKey)
+    ) {
+      throw new Error(`Model not allowed for this agent: ${resolvedKey}`);
+    }
+    explicitModelSelection = {
+      provider: resolvedModelRef.ref.provider,
+      model: resolvedModelRef.ref.model,
+      isDefault:
+        resolvedModelRef.ref.provider === defaultModelRef.provider &&
+        resolvedModelRef.ref.model === defaultModelRef.model,
+    };
+  }
   const outboundSession = buildOutboundSessionContext({
     cfg,
     agentId: sessionAgentId,
@@ -665,6 +720,7 @@ async function prepareAgentCommandExecution(
     isNewSession,
     persistedThinking,
     persistedVerbose,
+    explicitModelSelection,
     sessionAgentId,
     outboundSession,
     workspaceDir,
@@ -697,6 +753,7 @@ async function agentCommandInternal(
     isNewSession,
     persistedThinking,
     persistedVerbose,
+    explicitModelSelection,
     sessionAgentId,
     outboundSession,
     workspaceDir,
@@ -876,6 +933,14 @@ async function agentCommandInternal(
     const needsSkillsSnapshot = isNewSession || !sessionEntry?.skillsSnapshot;
     const skillsSnapshotVersion = getSkillsSnapshotVersion(workspaceDir);
     const skillFilter = resolveAgentSkillsFilter(cfg, sessionAgentId);
+    const configuredDefaultRef = resolveDefaultModelForAgent({
+      cfg,
+      agentId: sessionAgentId,
+    });
+    const { provider: defaultProvider, model: defaultModel } = normalizeModelRef(
+      configuredDefaultRef.provider,
+      configuredDefaultRef.model,
+    );
     const skillsSnapshot = needsSkillsSnapshot
       ? buildWorkspaceSkillSnapshot(workspaceDir, {
           config: cfg,
@@ -910,10 +975,22 @@ async function agentCommandInternal(
       const entry = sessionStore[sessionKey] ??
         sessionEntry ?? { sessionId, updatedAt: Date.now() };
       const next: SessionEntry = { ...entry, sessionId, updatedAt: Date.now() };
+      if (opts.newSession) {
+        applyModelOverrideToSessionEntry({
+          entry: next,
+          selection: { provider: defaultProvider, model: defaultModel, isDefault: true },
+        });
+      }
       if (thinkOverride) {
         next.thinkingLevel = thinkOverride;
       }
       applyVerboseOverride(next, verboseOverride);
+      if (explicitModelSelection && opts.persistModel) {
+        applyModelOverrideToSessionEntry({
+          entry: next,
+          selection: explicitModelSelection,
+        });
+      }
       await persistSessionEntry({
         sessionStore,
         sessionKey,
@@ -923,14 +1000,6 @@ async function agentCommandInternal(
       sessionEntry = next;
     }
 
-    const configuredDefaultRef = resolveDefaultModelForAgent({
-      cfg,
-      agentId: sessionAgentId,
-    });
-    const { provider: defaultProvider, model: defaultModel } = normalizeModelRef(
-      configuredDefaultRef.provider,
-      configuredDefaultRef.model,
-    );
     let provider = defaultProvider;
     let model = defaultModel;
     const hasAllowlist = agentCfg?.models && Object.keys(agentCfg.models).length > 0;
@@ -1000,6 +1069,10 @@ async function agentCommandInternal(
         model = normalizedStored.model;
       }
     }
+    if (explicitModelSelection) {
+      provider = explicitModelSelection.provider;
+      model = explicitModelSelection.model;
+    }
     if (sessionEntry) {
       const authProfileId = sessionEntry.authProfileOverride;
       if (authProfileId) {
@@ -1051,13 +1124,15 @@ async function agentCommandInternal(
       }
     }
     let sessionFile: string | undefined;
+    const sessionEntryForTranscript =
+      opts.newSession && sessionEntry ? { ...sessionEntry, sessionFile: undefined } : sessionEntry;
     if (sessionStore && sessionKey) {
       const resolvedSessionFile = await resolveSessionTranscriptFile({
         sessionId,
         sessionKey,
         sessionStore,
         storePath,
-        sessionEntry,
+        sessionEntry: sessionEntryForTranscript,
         agentId: sessionAgentId,
         threadId: opts.threadId,
       });
@@ -1068,7 +1143,7 @@ async function agentCommandInternal(
       const resolvedSessionFile = await resolveSessionTranscriptFile({
         sessionId,
         sessionKey: sessionKey ?? sessionId,
-        sessionEntry,
+        sessionEntry: sessionEntryForTranscript,
         agentId: sessionAgentId,
         threadId: opts.threadId,
       });

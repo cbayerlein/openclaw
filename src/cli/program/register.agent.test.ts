@@ -100,6 +100,32 @@ describe("registerAgentCommands", () => {
     );
   });
 
+  it("forwards model and session flags for agent runs", async () => {
+    await runCli([
+      "agent",
+      "--message",
+      "hi",
+      "--model",
+      "openai/gpt-5.2",
+      "--persist-model",
+      "--new-session",
+      "--thinking",
+      "low",
+    ]);
+
+    expect(agentCliCommandMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "hi",
+        model: "openai/gpt-5.2",
+        persistModel: true,
+        newSession: true,
+        thinking: "low",
+      }),
+      runtime,
+      { deps: true },
+    );
+  });
+
   it("runs agents add and computes hasFlags based on explicit options", async () => {
     await runCli(["agents", "add", "alpha"]);
     expect(agentsAddCommandMock).toHaveBeenNthCalledWith(
@@ -276,5 +302,14 @@ describe("registerAgentCommands", () => {
 
     expect(runtime.error).toHaveBeenCalledWith("Error: agent failed");
     expect(runtime.exit).toHaveBeenCalledWith(1);
+  });
+
+  it("documents model override examples in help text", () => {
+    const program = new Command();
+    registerAgentCommands(program, { agentChannelOptions: "last|telegram|discord" });
+    const agent = program.commands.find((command) => command.name() === "agent");
+    const help = agent?.helpInformation() ?? "";
+    expect(help).toContain("--model <ref>");
+    expect(help).toContain("Model override (provider/model or alias)");
   });
 });

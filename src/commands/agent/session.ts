@@ -114,6 +114,7 @@ export function resolveSession(opts: {
   sessionId?: string;
   sessionKey?: string;
   agentId?: string;
+  newSession?: boolean;
 }): SessionResolution {
   const sessionCfg = opts.cfg.session;
   const { sessionKey, sessionStore, storePath } = resolveSessionKeyForRequest({
@@ -126,6 +127,20 @@ export function resolveSession(opts: {
   const now = Date.now();
 
   const sessionEntry = sessionKey ? sessionStore[sessionKey] : undefined;
+  const requestedSessionId = opts.sessionId?.trim() || undefined;
+  const storedSessionId = sessionEntry?.sessionId?.trim() || undefined;
+
+  if (opts.newSession && requestedSessionId) {
+    throw new Error("--new-session cannot be combined with --session-id.");
+  }
+  if (requestedSessionId && !sessionEntry) {
+    throw new Error(`Unknown session id "${requestedSessionId}".`);
+  }
+  if (requestedSessionId && storedSessionId && storedSessionId !== requestedSessionId) {
+    throw new Error(
+      `Requested session id "${requestedSessionId}" does not match existing session "${storedSessionId}" for ${sessionKey ?? "the selected target"}.`,
+    );
+  }
 
   const resetType = resolveSessionResetType({ sessionKey });
   const channelReset = resolveChannelResetConfig({
@@ -141,9 +156,9 @@ export function resolveSession(opts: {
     ? evaluateSessionFreshness({ updatedAt: sessionEntry.updatedAt, now, policy: resetPolicy })
         .fresh
     : false;
+  const isNewSession = Boolean(opts.newSession) || (!fresh && !requestedSessionId);
   const sessionId =
-    opts.sessionId?.trim() || (fresh ? sessionEntry?.sessionId : undefined) || crypto.randomUUID();
-  const isNewSession = !fresh && !opts.sessionId;
+    requestedSessionId || (!isNewSession ? storedSessionId : undefined) || crypto.randomUUID();
 
   clearBootstrapSnapshotOnSessionRollover({
     sessionKey,

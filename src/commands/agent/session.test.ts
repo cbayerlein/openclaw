@@ -22,7 +22,7 @@ vi.mock("../../agents/agent-scope.js", () => ({
   listAgentIds: mocks.listAgentIds,
 }));
 
-const { resolveSessionKeyForRequest } = await import("./session.js");
+const { resolveSession, resolveSessionKeyForRequest } = await import("./session.js");
 
 describe("resolveSessionKeyForRequest", () => {
   const MAIN_STORE_PATH = "/tmp/main-store.json";
@@ -175,5 +175,56 @@ describe("resolveSessionKeyForRequest", () => {
     expect(storePaths).toHaveLength(2);
     expect(storePaths).toContain(MAIN_STORE_PATH);
     expect(storePaths).toContain(MYBOT_STORE_PATH);
+  });
+});
+
+describe("resolveSession", () => {
+  const MAIN_STORE_PATH = "/tmp/main-store.json";
+  const baseCfg: OpenClawConfig = {};
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.listAgentIds.mockReturnValue(["main"]);
+    mocks.resolveStorePath.mockReturnValue(MAIN_STORE_PATH);
+  });
+
+  it("rejects unknown explicit session ids", () => {
+    mocks.loadSessionStore.mockReturnValue({});
+
+    expect(() =>
+      resolveSession({
+        cfg: baseCfg,
+        sessionId: "unknown-session",
+      }),
+    ).toThrow('Unknown session id "unknown-session".');
+  });
+
+  it("rejects mismatched explicit session ids on an existing session key", () => {
+    mocks.loadSessionStore.mockReturnValue({
+      "agent:main:main": { sessionId: "existing-session", updatedAt: Date.now() },
+    });
+
+    expect(() =>
+      resolveSession({
+        cfg: baseCfg,
+        sessionKey: "agent:main:main",
+        sessionId: "other-session",
+      }),
+    ).toThrow(/does not match existing session "existing-session"/);
+  });
+
+  it("creates a fresh session id when --new-session is requested", () => {
+    mocks.loadSessionStore.mockReturnValue({
+      "agent:main:main": { sessionId: "existing-session", updatedAt: Date.now() },
+    });
+
+    const result = resolveSession({
+      cfg: baseCfg,
+      sessionKey: "agent:main:main",
+      newSession: true,
+    });
+
+    expect(result.isNewSession).toBe(true);
+    expect(result.sessionId).not.toBe("existing-session");
   });
 });

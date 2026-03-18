@@ -159,6 +159,7 @@ vi.mock("./model.js", () => ({
 }));
 
 vi.mock("../model-auth.js", () => ({
+  applyLocalNoAuthHeaderOverride: vi.fn((model) => model),
   ensureAuthProfileStore: vi.fn(() => ({})),
   getApiKeyForModel: vi.fn(async () => ({
     apiKey: "test-key",
@@ -230,7 +231,7 @@ vi.mock("./logger.js", () => ({
 }));
 
 vi.mock("./run/payloads.js", () => ({
-  buildEmbeddedRunPayloads: vi.fn(() => []),
+  buildEmbeddedRunPayloads: vi.fn(() => ({ payloads: [], warnings: [] })),
 }));
 
 vi.mock("./tool-result-truncation.js", () => ({

@@ -1,15 +1,7 @@
 import "./run.overflow-compaction.mocks.shared.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const runtimePluginMocks = vi.hoisted(() => ({
-  ensureRuntimePluginsLoaded: vi.fn(),
-}));
-
-vi.mock("../runtime-plugins.js", () => ({
-  ensureRuntimePluginsLoaded: runtimePluginMocks.ensureRuntimePluginsLoaded,
-}));
-
 import { runEmbeddedPiAgent } from "./run.js";
+import { mockedEnsureRuntimePluginsLoaded } from "./run.overflow-compaction.mocks.shared.js";
 import { runEmbeddedAttempt } from "./run/attempt.js";
 
 const mockedRunEmbeddedAttempt = vi.mocked(runEmbeddedAttempt);
@@ -39,7 +31,7 @@ describe("runEmbeddedPiAgent usage reporting", () => {
       runId: "run-plugin-bootstrap",
     });
 
-    expect(runtimePluginMocks.ensureRuntimePluginsLoaded).toHaveBeenCalledWith({
+    expect(mockedEnsureRuntimePluginsLoaded).toHaveBeenCalledWith({
       config: undefined,
       workspaceDir: "/tmp/workspace",
     });
@@ -156,5 +148,28 @@ describe("runEmbeddedPiAgent usage reporting", () => {
     // Check if total matches the last turn's total (200)
     // If the bug exists, it will likely be 350
     expect(usage?.total).toBe(200);
+  });
+
+  it("reports the OpenClaw session id in agent meta even when the underlying transcript id differs", async () => {
+    mockedRunEmbeddedAttempt.mockResolvedValueOnce({
+      aborted: false,
+      promptError: null,
+      timedOut: false,
+      sessionIdUsed: "underlying-transcript-id",
+      assistantTexts: ["Response 1"],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+
+    const result = await runEmbeddedPiAgent({
+      sessionId: "openclaw-session-id",
+      sessionKey: "test-key",
+      sessionFile: "/tmp/session.json",
+      workspaceDir: "/tmp/workspace",
+      prompt: "hello",
+      timeoutMs: 30000,
+      runId: "run-session-id-meta",
+    });
+
+    expect(result.meta.agentMeta?.sessionId).toBe("openclaw-session-id");
   });
 });

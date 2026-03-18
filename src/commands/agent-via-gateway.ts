@@ -37,6 +37,9 @@ export type AgentCliOpts = {
   agent?: string;
   to?: string;
   sessionId?: string;
+  newSession?: boolean;
+  model?: string;
+  persistModel?: boolean;
   thinking?: string;
   verbose?: string;
   json?: boolean;
@@ -89,6 +92,12 @@ export async function agentViaGatewayCommand(opts: AgentCliOpts, runtime: Runtim
   if (!body) {
     throw new Error("Message (--message) is required");
   }
+  if (opts.newSession && opts.sessionId?.trim()) {
+    throw new Error("--new-session cannot be combined with --session-id.");
+  }
+  if (opts.persistModel && !opts.model?.trim()) {
+    throw new Error("--persist-model requires --model.");
+  }
   if (!opts.to && !opts.sessionId && !opts.agent) {
     throw new Error("Pass --to <E.164>, --session-id, or --agent to choose a session");
   }
@@ -136,6 +145,9 @@ export async function agentViaGatewayCommand(opts: AgentCliOpts, runtime: Runtim
           replyTo: opts.replyTo,
           sessionId: opts.sessionId,
           sessionKey,
+          newSession: opts.newSession,
+          model: opts.model,
+          persistModel: opts.persistModel,
           thinking: opts.thinking,
           deliver: Boolean(opts.deliver),
           channel,

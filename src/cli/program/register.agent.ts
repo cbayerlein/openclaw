@@ -26,7 +26,10 @@ export function registerAgentCommands(program: Command, args: { agentChannelOpti
     .requiredOption("-m, --message <text>", "Message body for the agent")
     .option("-t, --to <number>", "Recipient number in E.164 used to derive the session key")
     .option("--session-id <id>", "Use an explicit session id")
+    .option("--new-session", "Start a fresh session on the selected target", false)
     .option("--agent <id>", "Agent id (overrides routing bindings)")
+    .option("--model <ref>", "Model override (provider/model or alias)")
+    .option("--persist-model", "Persist --model on the session for later turns", false)
     .option("--thinking <level>", "Thinking level: off | minimal | low | medium | high | xhigh")
     .option("--verbose <on|off>", "Persist agent verbose level for the session")
     .option(
@@ -56,8 +59,24 @@ ${formatHelpExamples([
   ['openclaw agent --to +15555550123 --message "status update"', "Start a new session."],
   ['openclaw agent --agent ops --message "Summarize logs"', "Use a specific agent."],
   [
+    'openclaw agent --agent ops --message "Use Opus once" --model opus',
+    "Target an alias for this turn only.",
+  ],
+  [
+    'openclaw agent --agent ops --message "Use Opus later too" --model opus --persist-model',
+    "Persist the model override on the session.",
+  ],
+  [
     'openclaw agent --session-id 1234 --message "Summarize inbox" --thinking medium',
     "Target a session with explicit thinking level.",
+  ],
+  [
+    'openclaw agent --session-id 1234 --message "Summarize inbox" --model openai/gpt-5.2 --thinking medium',
+    "Target a session with explicit model and thinking level.",
+  ],
+  [
+    'openclaw agent --agent ops --new-session --message "Start fresh"',
+    "Start a new session on the selected target.",
   ],
   [
     'openclaw agent --to +15555550123 --message "Trace logs" --verbose on --json',

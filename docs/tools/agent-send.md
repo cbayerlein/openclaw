@@ -18,8 +18,11 @@ runtime on the current machine.
   - `--to <dest>` derives the session key (group/channel targets preserve isolation; direct chats collapse to `main`), **or**
   - `--session-id <id>` reuses an existing session by id, **or**
   - `--agent <id>` targets a configured agent directly (uses that agent's `main` session key)
+- `--new-session` starts a fresh session on the selected target.
+- `--new-session` cannot be combined with `--session-id`.
 - Runs the same embedded agent runtime as normal inbound replies.
-- Thinking/verbose flags persist into the session store.
+- `--model` is turn-only by default; add `--persist-model` to persist it.
+- `--thinking` and `--verbose` persist into the session store.
 - Output:
   - default: prints reply text (plus `MEDIA:<url>` lines)
   - `--json`: prints structured payload + metadata
@@ -33,7 +36,11 @@ If the Gateway is unreachable, the CLI **falls back** to the embedded local run.
 ```bash
 openclaw agent --to +15555550123 --message "status update"
 openclaw agent --agent ops --message "Summarize logs"
+openclaw agent --agent ops --message "Use Opus once" --model opus
+openclaw agent --agent ops --message "Use Opus later too" --model opus --persist-model
 openclaw agent --session-id 1234 --message "Summarize inbox" --thinking medium
+openclaw agent --session-id 1234 --message "Summarize inbox" --model openai/gpt-5.2 --thinking medium
+openclaw agent --agent ops --new-session --message "Start fresh"
 openclaw agent --to +15555550123 --message "Trace logs" --verbose on --json
 openclaw agent --to +15555550123 --message "Summon reply" --deliver
 openclaw agent --agent ops --message "Generate report" --deliver --reply-channel slack --reply-to "#reports"
@@ -47,6 +54,9 @@ openclaw agent --agent ops --message "Generate report" --deliver --reply-channel
 - `--reply-to`: delivery target override
 - `--reply-channel`: delivery channel override
 - `--reply-account`: delivery account id override
+- `--new-session`: start a fresh session on the selected target
+- `--model <provider/model|alias>`: use a model override for the current turn
+- `--persist-model`: persist `--model` on the targeted session
 - `--thinking <off|minimal|low|medium|high|xhigh>`: persist thinking level (GPT-5.2 + Codex models only)
 - `--verbose <on|full|off>`: persist verbose level
 - `--timeout <seconds>`: override agent timeout
