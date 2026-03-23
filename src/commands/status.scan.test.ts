@@ -73,6 +73,84 @@ vi.mock("../process/exec.js", () => ({
 import { scanStatus } from "./status.scan.js";
 
 describe("scanStatus", () => {
+  it("uses a 5s default gateway probe timeout for json status scans", async () => {
+    mocks.readBestEffortConfig.mockResolvedValue({
+      session: {},
+      plugins: { enabled: false },
+      gateway: {},
+    });
+    mocks.resolveCommandSecretRefsViaGateway.mockResolvedValue({
+      resolvedConfig: { session: {}, plugins: { enabled: false }, gateway: {} },
+      diagnostics: [],
+    });
+    mocks.getUpdateCheckResult.mockResolvedValue({ installKind: "git", git: null, registry: null });
+    mocks.getAgentLocalStatuses.mockResolvedValue({ defaultId: "main", agents: [] });
+    mocks.getStatusSummary.mockResolvedValue({
+      linkChannel: { linked: false },
+      sessions: { count: 0, paths: [], defaults: {}, recent: [] },
+    });
+    mocks.buildGatewayConnectionDetails.mockReturnValue({
+      url: "ws://127.0.0.1:18789",
+      urlSource: "default",
+    });
+    mocks.resolveGatewayProbeAuthResolution.mockReturnValue({ auth: {}, warning: undefined });
+    mocks.probeGateway.mockResolvedValue({
+      ok: false,
+      url: "ws://127.0.0.1:18789",
+      connectLatencyMs: null,
+      error: "timeout",
+      close: null,
+      health: null,
+      status: null,
+      presence: null,
+      configSnapshot: null,
+    });
+    mocks.buildChannelsTable.mockResolvedValue({ rows: [], details: [] });
+
+    await scanStatus({ json: true }, {} as never);
+
+    expect(mocks.probeGateway).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 5_000 }));
+  });
+
+  it("respects a smaller explicit timeout for gateway probes", async () => {
+    mocks.readBestEffortConfig.mockResolvedValue({
+      session: {},
+      plugins: { enabled: false },
+      gateway: {},
+    });
+    mocks.resolveCommandSecretRefsViaGateway.mockResolvedValue({
+      resolvedConfig: { session: {}, plugins: { enabled: false }, gateway: {} },
+      diagnostics: [],
+    });
+    mocks.getUpdateCheckResult.mockResolvedValue({ installKind: "git", git: null, registry: null });
+    mocks.getAgentLocalStatuses.mockResolvedValue({ defaultId: "main", agents: [] });
+    mocks.getStatusSummary.mockResolvedValue({
+      linkChannel: { linked: false },
+      sessions: { count: 0, paths: [], defaults: {}, recent: [] },
+    });
+    mocks.buildGatewayConnectionDetails.mockReturnValue({
+      url: "ws://127.0.0.1:18789",
+      urlSource: "default",
+    });
+    mocks.resolveGatewayProbeAuthResolution.mockReturnValue({ auth: {}, warning: undefined });
+    mocks.probeGateway.mockResolvedValue({
+      ok: false,
+      url: "ws://127.0.0.1:18789",
+      connectLatencyMs: null,
+      error: "timeout",
+      close: null,
+      health: null,
+      status: null,
+      presence: null,
+      configSnapshot: null,
+    });
+    mocks.buildChannelsTable.mockResolvedValue({ rows: [], details: [] });
+
+    await scanStatus({ json: true, timeoutMs: 3_000 }, {} as never);
+
+    expect(mocks.probeGateway).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 3_000 }));
+  });
+
   it("passes sourceConfig into buildChannelsTable for summary-mode status output", async () => {
     mocks.readBestEffortConfig.mockResolvedValue({
       marker: "source",
