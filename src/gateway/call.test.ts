@@ -73,6 +73,14 @@ vi.mock("./client.js", () => ({
   },
 }));
 
+vi.mock("../infra/device-identity.js", () => ({
+  loadOrCreateDeviceIdentity: vi.fn(() => ({
+    deviceId: "test-device-id",
+    publicKeyPem: "test-public-key",
+    privateKeyPem: "test-private-key",
+  })),
+}));
+
 const { buildGatewayConnectionDetails, callGateway, callGatewayCli, callGatewayScoped } =
   await import("./call.js");
 
@@ -114,6 +122,7 @@ describe("callGateway url resolution", () => {
     "OPENCLAW_ALLOW_INSECURE_PRIVATE_WS",
     "OPENCLAW_GATEWAY_URL",
     "OPENCLAW_GATEWAY_TOKEN",
+    "OPENCLAW_GATEWAY_PASSWORD",
     "CLAWDBOT_GATEWAY_TOKEN",
   ]);
 
@@ -209,7 +218,7 @@ describe("callGateway url resolution", () => {
     expect(lastClientOptions?.token).toBe("explicit-token");
   });
 
-  it("does not attach device identity for local loopback shared-token auth", async () => {
+  it("attaches device identity for local loopback shared-token auth", async () => {
     setLocalLoopbackGatewayConfig();
 
     await callGateway({
@@ -219,7 +228,11 @@ describe("callGateway url resolution", () => {
 
     expect(lastClientOptions?.url).toBe("ws://127.0.0.1:18789");
     expect(lastClientOptions?.token).toBe("explicit-token");
-    expect(lastClientOptions?.deviceIdentity).toBeUndefined();
+    expect(lastClientOptions?.deviceIdentity).toEqual({
+      deviceId: "test-device-id",
+      publicKeyPem: "test-public-key",
+      privateKeyPem: "test-private-key",
+    });
   });
 
   it("uses OPENCLAW_GATEWAY_URL env override in remote mode when remote URL is missing", async () => {
@@ -230,6 +243,7 @@ describe("callGateway url resolution", () => {
     pickPrimaryTailnetIPv4.mockReturnValue(undefined);
     process.env.OPENCLAW_GATEWAY_URL = "wss://gateway-in-container.internal:9443/ws";
     process.env.OPENCLAW_GATEWAY_TOKEN = "env-token";
+    delete process.env.OPENCLAW_GATEWAY_PASSWORD;
 
     await callGateway({
       method: "health",
@@ -259,6 +273,7 @@ describe("callGateway url resolution", () => {
     pickPrimaryTailnetIPv4.mockReturnValue(undefined);
     process.env.OPENCLAW_GATEWAY_URL = "wss://gateway-in-container.internal:9443/ws";
     process.env.OPENCLAW_GATEWAY_TOKEN = "env-token";
+    delete process.env.OPENCLAW_GATEWAY_PASSWORD;
 
     await callGateway({
       method: "health",
@@ -663,6 +678,8 @@ describe("callGateway url override auth requirements", () => {
 
   it("throws when env URL override is set without env credentials", async () => {
     process.env.OPENCLAW_GATEWAY_URL = "wss://override.example/ws";
+    delete process.env.OPENCLAW_GATEWAY_TOKEN;
+    delete process.env.OPENCLAW_GATEWAY_PASSWORD;
     loadConfig.mockReturnValue({
       gateway: {
         mode: "local",

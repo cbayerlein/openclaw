@@ -86,15 +86,20 @@ function shouldAttachDeviceIdentityForGatewayCall(params: {
   token?: string;
   password?: string;
 }): boolean {
-  if (!(params.token || params.password)) {
-    return true;
-  }
-  try {
-    const parsed = new URL(params.url);
-    return !["127.0.0.1", "::1", "localhost"].includes(parsed.hostname);
-  } catch {
-    return true;
-  }
+  // Always attach device identity when available.
+  //
+  // Rationale:
+  // - Explicit auth is already required for untrusted URL overrides via
+  //   ensureExplicitGatewayAuth(), so we do not silently reuse local creds on
+  //   attacker-controlled endpoints.
+  // - Suppressing device identity on local loopback token-authenticated calls
+  //   causes operator-scoped RPCs (for example status/channels.status) to lose
+  //   their stored operator scopes and appear permission-limited despite a
+  //   healthy local gateway connection.
+  // - Attaching device identity on loopback lets the gateway authorize the
+  //   request with the paired operator role/scopes that the CLI already owns.
+  void params;
+  return true;
 }
 
 export type ExplicitGatewayAuth = {
