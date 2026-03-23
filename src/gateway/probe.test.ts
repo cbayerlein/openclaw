@@ -51,7 +51,7 @@ describe("probeGateway", () => {
     });
 
     expect(gatewayClientState.options?.scopes).toEqual(["operator.read"]);
-    expect(gatewayClientState.options?.deviceIdentity).toBeNull();
+    expect(gatewayClientState.options?.deviceIdentity).toBeUndefined();
     expect(gatewayClientState.requests).toEqual([
       "health",
       "status",
@@ -66,6 +66,17 @@ describe("probeGateway", () => {
       url: "wss://gateway.example/ws",
       auth: { token: "secret" },
       timeoutMs: 1_000,
+    });
+
+    expect(gatewayClientState.options?.deviceIdentity).toBeUndefined();
+  });
+
+  it("keeps device identity enabled for loopback probes", async () => {
+    await probeGateway({
+      url: "ws://127.0.0.1:18789",
+      auth: { token: "secret" },
+      timeoutMs: 1_000,
+      includeDetails: false,
     });
 
     expect(gatewayClientState.options?.deviceIdentity).toBeUndefined();
