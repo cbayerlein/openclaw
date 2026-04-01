@@ -48,6 +48,7 @@ export function buildOpenAICodexCliBackend(): CliBackendPlugin {
       resumeOutput: "text",
       input: "arg",
       modelArg: "--model",
+      thinkingConfigKey: "model_reasoning_effort",
       sessionIdFields: ["thread_id"],
       sessionMode: "existing",
       systemPromptFileConfigArg: "-c",

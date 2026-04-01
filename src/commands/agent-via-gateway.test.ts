@@ -411,4 +411,61 @@ describe("agentCliCommand", () => {
       });
     });
   });
+
+  it("forwards new session and persisted model intent to the gateway", async () => {
+    await withTempStore(async () => {
+      mockGatewaySuccessReply();
+
+      await agentCliCommand(
+        {
+          message: "hi",
+          to: "+1555",
+          newSession: true,
+          model: "openai/gpt-5.4",
+          persistModel: true,
+        },
+        runtime,
+      );
+
+      const request = vi.mocked(callGateway).mock.calls.at(-1)?.[0] as {
+        params?: Record<string, unknown>;
+      };
+      expect(request.params).toEqual(
+        expect.objectContaining({
+          newSession: true,
+          model: "openai/gpt-5.4",
+          persistModel: true,
+        }),
+      );
+    });
+  });
+
+  it("rejects --persist-model without --model before any execution path runs", async () => {
+    await withTempStore(async () => {
+      await expect(
+        agentCliCommand({ message: "hi", to: "+1555", persistModel: true }, runtime),
+      ).rejects.toThrow("--persist-model requires --model");
+
+      expect(callGateway).not.toHaveBeenCalled();
+      expect(agentCommand).not.toHaveBeenCalled();
+    });
+  });
+
+  it("rejects --new-session with --session-id before any execution path runs", async () => {
+    await withTempStore(async () => {
+      await expect(
+        agentCliCommand(
+          {
+            message: "hi",
+            sessionId: "session-123",
+            newSession: true,
+          },
+          runtime,
+        ),
+      ).rejects.toThrow("--new-session cannot be combined with --session-id");
+
+      expect(callGateway).not.toHaveBeenCalled();
+      expect(agentCommand).not.toHaveBeenCalled();
+    });
+  });
 });

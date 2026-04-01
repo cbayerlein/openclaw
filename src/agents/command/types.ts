@@ -52,9 +52,12 @@ export type AgentCommandOpts = {
   provider?: string;
   /** Per-run model override. */
   model?: string;
+  /** Persist the explicit provider/model override to the session store. */
+  persistModel?: boolean;
   to?: string;
   sessionId?: string;
   sessionKey?: string;
+  newSession?: boolean;
   thinking?: string;
   thinkingOnce?: string;
   verbose?: string;

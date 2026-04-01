@@ -1679,6 +1679,35 @@ describe("sendMessageTelegram", () => {
     }
   });
 
+  it("retries sends without reply targeting when Telegram reports a missing reply target", async () => {
+    const sendMessage = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("400: Bad Request: message to be replied not found"))
+      .mockResolvedValueOnce({
+        message_id: 61,
+        chat: { id: "123" },
+      });
+    const api = { sendMessage } as unknown as {
+      sendMessage: typeof sendMessage;
+    };
+
+    const res = await sendMessageTelegram("123", "hello", {
+      token: "tok",
+      api,
+      replyToMessageId: 100,
+    });
+
+    expect(sendMessage).toHaveBeenNthCalledWith(1, "123", "hello", {
+      parse_mode: "HTML",
+      reply_to_message_id: 100,
+      allow_sending_without_reply: true,
+    });
+    expect(sendMessage).toHaveBeenNthCalledWith(2, "123", "hello", {
+      parse_mode: "HTML",
+    });
+    expect(res.messageId).toBe("61");
+  });
+
   it("does not retry on non-retriable thread/chat errors", async () => {
     const cases: Array<{
       chatId: string;

@@ -22,9 +22,25 @@ export async function readServiceStatusSummary(
 ): Promise<ServiceStatusSummary> {
   try {
     const state = await readGatewayServiceState(service, { env: process.env });
-    const layout = await summarizeGatewayServiceLayout(state.command);
-    const managedByOpenClaw = state.installed;
-    const externallyManaged = !managedByOpenClaw && state.running;
+    let managedByOpenClaw = state.installed;
+    let runtime = state.runtime;
+    let loaded = state.loaded;
+    let command = state.command;
+    if (process.platform === "linux" && !managedByOpenClaw && runtime?.status !== "running") {
+      const [systemCommand, systemLoaded, systemRuntime] = await Promise.all([
+        systemd.readSystemdSystemServiceExecStart(process.env).catch(() => null),
+        systemd.isSystemdSystemServiceEnabled({ env: process.env }).catch(() => false),
+        systemd.readSystemdSystemServiceRuntime(process.env).catch(() => undefined),
+      ]);
+      if (systemCommand || systemLoaded || systemRuntime?.status === "running") {
+        command = systemCommand ?? command;
+        managedByOpenClaw = systemCommand != null;
+        loaded = systemLoaded;
+        runtime = systemRuntime;
+      }
+    }
+    const layout = await summarizeGatewayServiceLayout(command);
+    const externallyManaged = !managedByOpenClaw && runtime?.status === "running";
     const installed = managedByOpenClaw || externallyManaged;
     const loadedText = externallyManaged
       ? "running (externally managed)"
@@ -38,7 +54,7 @@ export async function readServiceStatusSummary(
       managedByOpenClaw,
       externallyManaged,
       loadedText,
-      runtime: state.runtime,
+      runtime,
       ...(layout ? { layout } : {}),
     };
   } catch {

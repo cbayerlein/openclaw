@@ -540,6 +540,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       replyTo?: string;
       sessionId?: string;
       sessionKey?: string;
+      newSession?: boolean;
       thinking?: string;
       deliver?: boolean;
       attachments?: Array<{
@@ -568,11 +569,31 @@ export const agentHandlers: GatewayRequestHandlers = {
       timeout?: number;
       bestEffortDeliver?: boolean;
       cleanupBundleMcpOnRunEnd?: boolean;
+      persistModel?: boolean;
       label?: string;
       inputProvenance?: InputProvenance;
       workspaceDir?: string;
       voiceWakeTrigger?: string;
     };
+    if (request.newSession === true && request.sessionId?.trim()) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "--new-session cannot be combined with --session-id",
+        ),
+      );
+      return;
+    }
+    if (request.persistModel === true && !request.model?.trim()) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "--persist-model requires --model"),
+      );
+      return;
+    }
     const senderIsOwner = resolveSenderIsOwnerFromClient(client);
     const allowModelOverride = resolveAllowModelOverrideFromClient(client);
     const canResetSession = resolveCanResetSessionFromClient(client);
@@ -935,15 +956,18 @@ export const agentHandlers: GatewayRequestHandlers = {
             policy: resetPolicy,
           })
         : undefined;
-      const canReuseSession = Boolean(entry?.sessionId) && (freshness?.fresh ?? false);
+      const forceNewSession = request.newSession === true;
+      const canReuseSession =
+        !forceNewSession && Boolean(entry?.sessionId) && (freshness?.fresh ?? false);
       const usableRequestedSessionId =
-        requestedSessionId && (!entry?.sessionId || canReuseSession)
+        !forceNewSession && requestedSessionId && (!entry?.sessionId || canReuseSession)
           ? requestedSessionId
           : undefined;
       const sessionId = usableRequestedSessionId
         ? usableRequestedSessionId
         : ((canReuseSession ? entry?.sessionId : undefined) ?? randomUUID());
       isNewSession =
+        forceNewSession ||
         !entry ||
         (!canReuseSession && !usableRequestedSessionId) ||
         Boolean(usableRequestedSessionId && entry?.sessionId !== usableRequestedSessionId);
@@ -1374,7 +1398,9 @@ export const agentHandlers: GatewayRequestHandlers = {
             to: resolvedTo,
             sessionId: resolvedSessionId,
             sessionKey: resolvedSessionKey,
+            newSession: request.newSession,
             thinking: request.thinking,
+            persistModel: request.persistModel,
             deliver,
             deliveryTargetMode,
             channel: resolvedChannel,

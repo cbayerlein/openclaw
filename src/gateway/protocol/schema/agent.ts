@@ -140,6 +140,7 @@ export const AgentParamsSchema = Type.Object(
     replyTo: Type.Optional(Type.String()),
     sessionId: Type.Optional(Type.String()),
     sessionKey: Type.Optional(Type.String()),
+    newSession: Type.Optional(Type.Boolean()),
     thinking: Type.Optional(Type.String()),
     deliver: Type.Optional(Type.Boolean()),
     attachments: Type.Optional(Type.Array(Type.Unknown())),
@@ -153,6 +154,7 @@ export const AgentParamsSchema = Type.Object(
     groupSpace: Type.Optional(Type.String()),
     timeout: Type.Optional(Type.Integer({ minimum: 0 })),
     bestEffortDeliver: Type.Optional(Type.Boolean()),
+    persistModel: Type.Optional(Type.Boolean()),
     lane: Type.Optional(Type.String()),
     // Backward-compatible no-op. Older CLI clients sent this field on gateway
     // agent requests; the gateway accepts but intentionally ignores it.

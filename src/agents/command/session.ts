@@ -290,6 +290,7 @@ export function resolveSession(opts: {
   sessionId?: string;
   sessionKey?: string;
   agentId?: string;
+  forceNewSession?: boolean;
 }): SessionResolution {
   const sessionCfg = opts.cfg.session;
   const { sessionKey, sessionStore, storePath } = resolveSessionKeyForRequest({
@@ -301,23 +302,26 @@ export function resolveSession(opts: {
   });
   const now = Date.now();
 
-  const sessionEntry = sessionKey ? sessionStore[sessionKey] : undefined;
+  const existingSessionEntry = sessionKey ? sessionStore[sessionKey] : undefined;
 
   const resetType = resolveSessionResetType({ sessionKey });
   const channelReset = resolveChannelResetConfig({
     sessionCfg,
-    channel: sessionEntry?.lastChannel ?? sessionEntry?.channel ?? sessionEntry?.origin?.provider,
+    channel:
+      existingSessionEntry?.lastChannel ??
+      existingSessionEntry?.channel ??
+      existingSessionEntry?.origin?.provider,
   });
   const resetPolicy = resolveSessionResetPolicy({
     sessionCfg,
     resetType,
     resetOverride: channelReset,
   });
-  const fresh = sessionEntry
+  const fresh = existingSessionEntry
     ? evaluateSessionFreshness({
-        updatedAt: sessionEntry.updatedAt,
+        updatedAt: existingSessionEntry.updatedAt,
         ...resolveSessionLifecycleTimestamps({
-          entry: sessionEntry,
+          entry: existingSessionEntry,
           agentId: opts.agentId,
           storePath,
         }),
@@ -325,13 +329,19 @@ export function resolveSession(opts: {
         policy: resetPolicy,
       }).fresh
     : false;
+  const forceNewSession = opts.forceNewSession === true;
+  const sessionEntry = forceNewSession ? undefined : existingSessionEntry;
   const sessionId =
-    opts.sessionId?.trim() || (fresh ? sessionEntry?.sessionId : undefined) || crypto.randomUUID();
-  const isNewSession = !fresh && !opts.sessionId;
+    forceNewSession
+      ? crypto.randomUUID()
+      : opts.sessionId?.trim() ||
+        (fresh ? existingSessionEntry?.sessionId : undefined) ||
+        crypto.randomUUID();
+  const isNewSession = forceNewSession || (!fresh && !opts.sessionId);
 
   clearBootstrapSnapshotOnSessionRollover({
     sessionKey,
-    previousSessionId: isNewSession ? sessionEntry?.sessionId : undefined,
+    previousSessionId: isNewSession ? existingSessionEntry?.sessionId : undefined,
   });
 
   const persistedThinking =

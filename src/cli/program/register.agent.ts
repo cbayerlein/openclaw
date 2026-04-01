@@ -28,7 +28,9 @@ export function registerAgentCommands(program: Command, args: { agentChannelOpti
     .option("-t, --to <number>", "Recipient number in E.164 used to derive the session key")
     .option("--session-id <id>", "Use an explicit session id")
     .option("--agent <id>", "Agent id (overrides routing bindings)")
+    .option("--new-session", "Force a fresh session for the resolved routing context", false)
     .option("--model <id>", "Model override for this run (provider/model or model id)")
+    .option("--persist-model", "Persist the explicit model override to the session", false)
     .option(
       "--thinking <level>",
       "Thinking level: off | minimal | low | medium | high | xhigh | adaptive | max where supported",
@@ -63,6 +65,14 @@ ${formatHelpExamples([
   [
     'openclaw agent --session-id 1234 --message "Summarize inbox" --thinking medium',
     "Target a session with explicit thinking level.",
+  ],
+  [
+    'openclaw agent --to +15555550123 --message "Start fresh" --new-session',
+    "Force a fresh session on the same routing target.",
+  ],
+  [
+    'openclaw agent --to +15555550123 --message "Stay on GPT-5.4" --model openai/gpt-5.4 --persist-model',
+    "Persist a model override to the session.",
   ],
   [
     'openclaw agent --to +15555550123 --message "Trace logs" --verbose on --json',

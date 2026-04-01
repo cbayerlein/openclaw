@@ -43,8 +43,10 @@ type AgentCliOpts = {
   message: string;
   agent?: string;
   model?: string;
+  persistModel?: boolean;
   to?: string;
   sessionId?: string;
+  newSession?: boolean;
   thinking?: string;
   verbose?: string;
   json?: boolean;
@@ -60,6 +62,15 @@ type AgentCliOpts = {
   extraSystemPrompt?: string;
   local?: boolean;
 };
+
+function validateAgentCliOpts(opts: AgentCliOpts): void {
+  if (opts.newSession === true && opts.sessionId) {
+    throw new Error("--new-session cannot be combined with --session-id");
+  }
+  if (opts.persistModel === true && !opts.model?.trim()) {
+    throw new Error("--persist-model requires --model");
+  }
+}
 
 function protectJsonStdout(opts: Pick<AgentCliOpts, "json">): void {
   if (opts.json === true) {
@@ -122,6 +133,7 @@ function createGatewayTimeoutFallbackSession(agentId?: string): {
 
 async function agentViaGatewayCommand(opts: AgentCliOpts, runtime: RuntimeEnv) {
   protectJsonStdout(opts);
+  validateAgentCliOpts(opts);
   const body = (opts.message ?? "").trim();
   if (!body) {
     throw new Error("Message (--message) is required");
@@ -170,10 +182,12 @@ async function agentViaGatewayCommand(opts: AgentCliOpts, runtime: RuntimeEnv) {
           message: body,
           agentId,
           model: opts.model,
+          persistModel: opts.persistModel,
           to: opts.to,
           replyTo: opts.replyTo,
           sessionId: opts.sessionId,
           sessionKey,
+          newSession: opts.newSession,
           thinking: opts.thinking,
           deliver: Boolean(opts.deliver),
           channel,

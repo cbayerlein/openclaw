@@ -176,6 +176,7 @@ function splitTelegramPlainTextFallback(text: string, chunkCount: number, limit:
 
 const PARSE_ERR_RE = /can't parse entities|parse entities|find end of the entity/i;
 const THREAD_NOT_FOUND_RE = /400:\s*Bad Request:\s*message thread not found/i;
+const REPLY_TARGET_NOT_FOUND_RE = /400:\s*Bad Request:\s*message to be replied not found/i;
 const MESSAGE_NOT_MODIFIED_RE =
   /400:\s*Bad Request:\s*message is not modified|MESSAGE_NOT_MODIFIED/i;
 const MESSAGE_DELETE_NOOP_RE =
@@ -371,6 +372,10 @@ function isTelegramThreadNotFoundError(err: unknown): boolean {
   return THREAD_NOT_FOUND_RE.test(formatErrorMessage(err));
 }
 
+function isTelegramReplyTargetNotFoundError(err: unknown): boolean {
+  return REPLY_TARGET_NOT_FOUND_RE.test(formatErrorMessage(err));
+}
+
 function isTelegramMessageNotModifiedError(err: unknown): boolean {
   return MESSAGE_NOT_MODIFIED_RE.test(formatErrorMessage(err));
 }
@@ -399,6 +404,108 @@ function removeMessageThreadIdParam<TParams extends TelegramThreadScopedParams |
   const next = { ...params };
   delete next.message_thread_id;
   return (Object.keys(next).length > 0 ? next : undefined) as TParams;
+}
+
+function hasReplyTargetParams(params?: TelegramThreadReplyParams): boolean {
+  if (!params) {
+    return false;
+  }
+  const replyToMessageId = params.reply_to_message_id;
+  if (typeof replyToMessageId === "number" && Number.isFinite(replyToMessageId)) {
+    return true;
+  }
+  const replyParameters = params.reply_parameters;
+  return (
+    typeof replyParameters?.message_id === "number" && Number.isFinite(replyParameters.message_id)
+  );
+}
+
+function removeReplyTargetParams<TParams extends TelegramThreadReplyParams | undefined>(
+  params: TParams,
+): TParams {
+  if (!params || !hasReplyTargetParams(params)) {
+    return params;
+  }
+  const next = { ...params };
+  delete next.reply_to_message_id;
+  delete next.reply_parameters;
+  delete next.allow_sending_without_reply;
+  return (Object.keys(next).length > 0 ? next : undefined) as TParams;
+}
+
+type TelegramParamFallback<TParams extends TelegramThreadReplyParams | undefined> = {
+  hasFallbackParams: (params: TParams) => boolean;
+  shouldFallback: (err: unknown) => boolean;
+  stripParams: (params: TParams) => TParams;
+  retrySuffix: string;
+  verboseMessage: string;
+};
+
+async function withTelegramParamFallback<T, TParams extends TelegramThreadReplyParams | undefined>(
+  params: TParams,
+  label: string,
+  verbose: boolean | undefined,
+  fallback: TelegramParamFallback<TParams>,
+  attempt: (effectiveParams: TParams, effectiveLabel: string) => Promise<T>,
+): Promise<T> {
+  try {
+    return await attempt(params, label);
+  } catch (err) {
+    if (!fallback.hasFallbackParams(params) || !fallback.shouldFallback(err)) {
+      throw err;
+    }
+    if (verbose) {
+      sendLogger.warn(`telegram ${label} ${fallback.verboseMessage}: ${formatErrorMessage(err)}`);
+    }
+    return await attempt(fallback.stripParams(params), `${label}-${fallback.retrySuffix}`);
+  }
+}
+
+export const THREAD_PARAM_FALLBACK: TelegramParamFallback<TelegramThreadReplyParams | undefined> = {
+  hasFallbackParams: hasMessageThreadIdParam,
+  shouldFallback: isTelegramThreadNotFoundError,
+  stripParams: removeMessageThreadIdParam,
+  retrySuffix: "threadless",
+  verboseMessage: "failed with message_thread_id, retrying without thread",
+};
+
+export const REPLY_PARAM_FALLBACK: TelegramParamFallback<TelegramThreadReplyParams | undefined> = {
+  hasFallbackParams: hasReplyTargetParams,
+  shouldFallback: isTelegramReplyTargetNotFoundError,
+  stripParams: removeReplyTargetParams,
+  retrySuffix: "replyless",
+  verboseMessage: "failed with missing reply target, retrying without reply target",
+};
+
+export async function withTelegramSendParamFallbacks<T>(params: {
+  requestParams: TelegramThreadReplyParams | undefined;
+  label: string;
+  verbose?: boolean;
+  allowThreadFallback?: boolean;
+  attempt: (
+    effectiveParams: TelegramThreadReplyParams | undefined,
+    effectiveLabel: string,
+  ) => Promise<T>;
+}): Promise<T> {
+  const allowThreadFallback = params.allowThreadFallback ?? true;
+  return await withTelegramParamFallback(
+    params.requestParams,
+    params.label,
+    params.verbose,
+    REPLY_PARAM_FALLBACK,
+    async (replyEffectiveParams, replyLabel) =>
+      await withTelegramParamFallback(
+        replyEffectiveParams,
+        replyLabel,
+        params.verbose,
+        {
+          ...THREAD_PARAM_FALLBACK,
+          hasFallbackParams: (effectiveParams) =>
+            allowThreadFallback && THREAD_PARAM_FALLBACK.hasFallbackParams(effectiveParams),
+        },
+        params.attempt,
+      ),
+  );
 }
 
 function isTelegramHtmlParseError(err: unknown): boolean {
@@ -532,22 +639,13 @@ async function withTelegramThreadFallback<
   verbose: boolean | undefined,
   attempt: (effectiveParams: TParams, effectiveLabel: string) => Promise<T>,
 ): Promise<T> {
-  try {
-    return await attempt(params, label);
-  } catch (err) {
-    // Do not widen this fallback to cover "chat not found".
-    // chat-not-found is routing/auth/membership/token; stripping thread IDs hides root cause.
-    if (!hasMessageThreadIdParam(params) || !isTelegramThreadNotFoundError(err)) {
-      throw err;
-    }
-    if (verbose) {
-      sendLogger.warn(
-        `telegram ${label} failed with message_thread_id, retrying without thread: ${formatErrorMessage(err)}`,
-      );
-    }
-    const retriedParams = removeMessageThreadIdParam(params);
-    return await attempt(retriedParams, `${label}-threadless`);
-  }
+  return await withTelegramSendParamFallbacks({
+    requestParams: params as TelegramThreadReplyParams | undefined,
+    label,
+    verbose,
+    attempt: (effectiveParams, effectiveLabel) =>
+      attempt(effectiveParams as TParams, effectiveLabel),
+  });
 }
 
 function createRequestWithChatNotFound(params: {

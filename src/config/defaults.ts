@@ -53,6 +53,31 @@ const MISTRAL_SAFE_MAX_TOKENS_BY_MODEL = {
 type ModelDefinitionLike = Partial<ModelDefinitionConfig> &
   Pick<ModelDefinitionConfig, "id" | "name">;
 
+function resolveKnownReasoningDefault(providerId: string, modelId: string): boolean | undefined {
+  const provider = normalizeProviderId(providerId);
+  const id = modelId.trim().toLowerCase();
+
+  if (provider === "openai-codex") {
+    if (id === "gpt-5.4" || id.startsWith("gpt-5.4-")) {
+      return true;
+    }
+    if (id === "gpt-5.3-codex" || id === "gpt-5.3-codex-spark") {
+      return true;
+    }
+  }
+
+  return undefined;
+}
+
+function resolveDefaultProviderApi(
+  providerId: string,
+  providerApi: ModelDefinitionConfig["api"] | undefined,
+): ModelDefinitionConfig["api"] | undefined {
+  if (providerApi) {
+    return providerApi;
+  }
+  return normalizeProviderId(providerId) === "anthropic" ? "anthropic-messages" : undefined;
+}
 function isPositiveNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
@@ -172,7 +197,10 @@ export function applyModelDefaults(
         const raw = model as ModelDefinitionLike;
         let modelMutated = false;
 
-        const reasoning = typeof raw.reasoning === "boolean" ? raw.reasoning : false;
+        const reasoning =
+          typeof raw.reasoning === "boolean"
+            ? raw.reasoning
+            : (resolveKnownReasoningDefault(providerId, raw.id) ?? false);
         if (raw.reasoning !== reasoning) {
           modelMutated = true;
         }
