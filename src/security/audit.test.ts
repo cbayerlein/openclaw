@@ -1778,6 +1778,23 @@ description: test skill
     }
   });
 
+  it("suppresses the insecure HTTP gateway audit finding when the env override is set", async () => {
+    const res = await audit(
+      {
+        gateway: {
+          controlUi: { allowInsecureAuth: true },
+        },
+      } satisfies OpenClawConfig,
+      {
+        env: {
+          OPENCLAW_SECURITY_AUDIT_ALLOW_INSECURE_HTTP_GATEWAY: "1",
+        },
+      },
+    );
+
+    expectNoFinding(res, "gateway.control_ui.insecure_auth");
+  });
+
   it("warns on insecure or dangerous flags", async () => {
     const cases = [
       {

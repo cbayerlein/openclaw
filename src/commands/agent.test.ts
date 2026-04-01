@@ -897,6 +897,204 @@ describe("agentCommand", () => {
     });
   });
 
+  it("uses a one-shot explicit model even when the session has a persisted model override", async () => {
+    await withTempHome(async (home) => {
+      const store = path.join(home, "sessions.json");
+      writeSessionStoreSeed(store, {
+        "agent:main:subagent:stored-override-one-shot": {
+          sessionId: "stored-override-session",
+          updatedAt: Date.now(),
+          providerOverride: "openai-codex",
+          modelOverride: "gpt-5.3-codex",
+        },
+      });
+      mockConfig(home, store, {
+        models: {
+          "anthropic/claude-opus-4-5": {},
+          "openai-codex/gpt-5.3-codex": {},
+          "openai-codex/gpt-5.4": {},
+        },
+      });
+
+      await agentCommand(
+        {
+          message: "use gpt-5.4 once",
+          sessionKey: "agent:main:subagent:stored-override-one-shot",
+          model: "openai-codex/gpt-5.4",
+        },
+        runtime,
+      );
+
+      expectLastRunProviderModel("openai-codex", "gpt-5.4");
+
+      const saved = readSessionStore<{
+        providerOverride?: string;
+        modelOverride?: string;
+      }>(store);
+      expect(saved["agent:main:subagent:stored-override-one-shot"]?.providerOverride).toBe(
+        "openai-codex",
+      );
+      expect(saved["agent:main:subagent:stored-override-one-shot"]?.modelOverride).toBe(
+        "gpt-5.3-codex",
+      );
+    });
+  });
+
+  it("persists explicit model overrides when requested", async () => {
+    await withTempHome(async (home) => {
+      const store = path.join(home, "sessions.json");
+      mockConfig(home, store, {
+        model: { primary: "anthropic/claude-opus-4-5" },
+        models: {
+          "anthropic/claude-opus-4-5": {},
+          "openai/gpt-4.1-mini": {},
+        },
+      });
+
+      await agentCommand(
+        {
+          message: "persist this model",
+          sessionKey: "agent:main:subagent:persist-override",
+          model: "openai/gpt-4.1-mini",
+          persistModel: true,
+        },
+        runtime,
+      );
+
+      expectLastRunProviderModel("openai", "gpt-4.1-mini");
+
+      const saved = readSessionStore<{
+        sessionId?: string;
+        providerOverride?: string;
+        modelOverride?: string;
+      }>(store);
+      expect(saved["agent:main:subagent:persist-override"]?.sessionId).toBeTruthy();
+      expect(saved["agent:main:subagent:persist-override"]?.providerOverride).toBe("openai");
+      expect(saved["agent:main:subagent:persist-override"]?.modelOverride).toBe("gpt-4.1-mini");
+    });
+  });
+
+  it("starts a fresh session when newSession is requested", async () => {
+    await withTempHome(async (home) => {
+      const store = path.join(home, "sessions.json");
+      writeSessionStoreSeed(store, {
+        "agent:main:subagent:fresh-start": {
+          sessionId: "existing-session",
+          updatedAt: Date.now(),
+          thinkingLevel: "medium",
+          modelOverride: "gpt-4.1-mini",
+          providerOverride: "openai",
+        },
+      });
+      mockConfig(home, store, {
+        models: {
+          "anthropic/claude-opus-4-5": {},
+          "openai/gpt-4.1-mini": {},
+        },
+      });
+
+      await agentCommand(
+        {
+          message: "start over",
+          sessionKey: "agent:main:subagent:fresh-start",
+          newSession: true,
+        },
+        runtime,
+      );
+
+      const callArgs = getLastEmbeddedCall();
+      expect(callArgs?.sessionId).toBeTruthy();
+      expect(callArgs?.sessionId).not.toBe("existing-session");
+      expect(callArgs?.provider).toBe("anthropic");
+      expect(callArgs?.model).toBe("claude-opus-4-5");
+
+      const saved = readSessionStore<{
+        sessionId?: string;
+        providerOverride?: string;
+        modelOverride?: string;
+      }>(store);
+      expect(saved["agent:main:subagent:fresh-start"]?.sessionId).toBe(callArgs?.sessionId);
+      expect(saved["agent:main:subagent:fresh-start"]?.providerOverride).toBeUndefined();
+      expect(saved["agent:main:subagent:fresh-start"]?.modelOverride).toBeUndefined();
+    });
+  });
+
+  it("does not overwrite the stored session before a fresh-session run validates", async () => {
+    await withTempHome(async (home) => {
+      const store = path.join(home, "sessions.json");
+      writeSessionStoreSeed(store, {
+        "agent:main:subagent:fresh-invalid-model": {
+          sessionId: "existing-session",
+          updatedAt: Date.now(),
+          providerOverride: "openai",
+          modelOverride: "gpt-4.1-mini",
+        },
+      });
+      mockConfig(home, store, {
+        models: {
+          "anthropic/claude-opus-4-5": {},
+        },
+      });
+
+      await expect(
+        agentCommand(
+          {
+            message: "start over with invalid model",
+            sessionKey: "agent:main:subagent:fresh-invalid-model",
+            newSession: true,
+            model: "openai/gpt-4.1-mini",
+          },
+          runtime,
+        ),
+      ).rejects.toThrow('Model override "openai/gpt-4.1-mini" is not allowed');
+
+      const saved = readSessionStore<{
+        sessionId?: string;
+        providerOverride?: string;
+        modelOverride?: string;
+      }>(store);
+      expect(saved["agent:main:subagent:fresh-invalid-model"]?.sessionId).toBe("existing-session");
+      expect(saved["agent:main:subagent:fresh-invalid-model"]?.providerOverride).toBe("openai");
+      expect(saved["agent:main:subagent:fresh-invalid-model"]?.modelOverride).toBe("gpt-4.1-mini");
+    });
+  });
+
+  it("rejects persistModel without a model override", async () => {
+    await withTempHome(async (home) => {
+      const store = path.join(home, "sessions.json");
+      mockConfig(home, store);
+
+      await expect(
+        agentCommand(
+          {
+            message: "invalid",
+            sessionKey: "agent:main:subagent:invalid-persist",
+            persistModel: true,
+          },
+          runtime,
+        ),
+      ).rejects.toThrow("--persist-model requires --model");
+    });
+  });
+
+  it("rejects newSession with an explicit sessionId", async () => {
+    await withTempHome(async (home) => {
+      const store = path.join(home, "sessions.json");
+      mockConfig(home, store);
+
+      await expect(
+        agentCommand(
+          {
+            message: "invalid",
+            sessionId: "session-123",
+            newSession: true,
+          },
+          runtime,
+        ),
+      ).rejects.toThrow("--new-session cannot be combined with --session-id");
+    });
+  });
+
   it("rejects explicit override values that contain control characters", async () => {
     await withTempHome(async (home) => {
       const store = path.join(home, "sessions.json");
@@ -1006,6 +1204,62 @@ describe("agentCommand", () => {
       expect(saved["agent:main:subagent:temp-openai-run"]?.authProfileOverrideCompactionCount).toBe(
         2,
       );
+    });
+  });
+
+  it("clears stored auth profile overrides when a cross-provider model change is persisted", async () => {
+    await withTempHome(async (home) => {
+      const store = path.join(home, "sessions.json");
+      writeSessionStoreSeed(store, {
+        "agent:main:subagent:persist-openai-run": {
+          sessionId: "session-persist-openai-run",
+          updatedAt: Date.now(),
+          authProfileOverride: "anthropic:work",
+          authProfileOverrideSource: "user",
+          authProfileOverrideCompactionCount: 2,
+        },
+      });
+      mockConfig(home, store, {
+        models: {
+          "anthropic/claude-opus-4-5": {},
+          "openai/gpt-4.1-mini": {},
+        },
+      });
+      vi.mocked(authProfilesModule.ensureAuthProfileStore).mockReturnValue({
+        version: 1,
+        profiles: {
+          "anthropic:work": {
+            provider: "anthropic",
+          },
+        },
+      } as never);
+
+      await agentCommand(
+        {
+          message: "switch this session to openai",
+          sessionKey: "agent:main:subagent:persist-openai-run",
+          provider: "openai",
+          model: "gpt-4.1-mini",
+          persistModel: true,
+        },
+        runtime,
+      );
+
+      expectLastRunProviderModel("openai", "gpt-4.1-mini");
+      expect(getLastEmbeddedCall()?.authProfileId).toBeUndefined();
+
+      const saved = readSessionStore<{
+        authProfileOverride?: string;
+        authProfileOverrideSource?: string;
+        authProfileOverrideCompactionCount?: number;
+      }>(store);
+      expect(saved["agent:main:subagent:persist-openai-run"]?.authProfileOverride).toBeUndefined();
+      expect(
+        saved["agent:main:subagent:persist-openai-run"]?.authProfileOverrideSource,
+      ).toBeUndefined();
+      expect(
+        saved["agent:main:subagent:persist-openai-run"]?.authProfileOverrideCompactionCount,
+      ).toBeUndefined();
     });
   });
 

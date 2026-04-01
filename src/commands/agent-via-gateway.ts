@@ -38,6 +38,9 @@ export type AgentCliOpts = {
   agent?: string;
   to?: string;
   sessionId?: string;
+  model?: string;
+  persistModel?: boolean;
+  newSession?: boolean;
   thinking?: string;
   verbose?: string;
   json?: boolean;
@@ -53,6 +56,15 @@ export type AgentCliOpts = {
   extraSystemPrompt?: string;
   local?: boolean;
 };
+
+function validateAgentCliOpts(opts: AgentCliOpts): void {
+  if (opts.newSession === true && opts.sessionId) {
+    throw new Error("--new-session cannot be combined with --session-id");
+  }
+  if (opts.persistModel === true && !opts.model?.trim()) {
+    throw new Error("--persist-model requires --model");
+  }
+}
 
 function parseTimeoutSeconds(opts: { cfg: ReturnType<typeof loadConfig>; timeout?: string }) {
   const raw =
@@ -86,6 +98,7 @@ function formatPayloadForLog(payload: {
 }
 
 export async function agentViaGatewayCommand(opts: AgentCliOpts, runtime: RuntimeEnv) {
+  validateAgentCliOpts(opts);
   const body = (opts.message ?? "").trim();
   if (!body) {
     throw new Error("Message (--message) is required");
@@ -137,6 +150,9 @@ export async function agentViaGatewayCommand(opts: AgentCliOpts, runtime: Runtim
           replyTo: opts.replyTo,
           sessionId: opts.sessionId,
           sessionKey,
+          model: opts.model,
+          persistModel: opts.persistModel,
+          newSession: opts.newSession,
           thinking: opts.thinking,
           deliver: Boolean(opts.deliver),
           channel,
@@ -179,6 +195,7 @@ export async function agentViaGatewayCommand(opts: AgentCliOpts, runtime: Runtim
 }
 
 export async function agentCliCommand(opts: AgentCliOpts, runtime: RuntimeEnv, deps?: CliDeps) {
+  validateAgentCliOpts(opts);
   const localOpts = {
     ...opts,
     agentId: opts.agent,

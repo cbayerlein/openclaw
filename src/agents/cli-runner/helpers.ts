@@ -102,6 +102,16 @@ export function normalizeCliModel(modelId: string, backend: CliBackendConfig): s
   return trimmed;
 }
 
+function normalizeCliThinkingLevelForConfig(level: ThinkLevel): string {
+  if (level === "off") {
+    return "none";
+  }
+  if (level === "adaptive") {
+    return "medium";
+  }
+  return level;
+}
+
 export function resolveSystemPromptUsage(params: {
   backend: CliBackendConfig;
   isNewSession: boolean;
@@ -242,6 +252,7 @@ export function buildCliArgs(params: {
   backend: CliBackendConfig;
   baseArgs: string[];
   modelId: string;
+  thinkLevel?: ThinkLevel;
   sessionId?: string;
   systemPrompt?: string | null;
   imagePaths?: string[];
@@ -251,6 +262,12 @@ export function buildCliArgs(params: {
   const args: string[] = [...params.baseArgs];
   if (params.backend.modelArg && params.modelId) {
     args.push(params.backend.modelArg, params.modelId);
+  }
+  if (params.backend.thinkingConfigKey && params.thinkLevel) {
+    args.push(
+      "-c",
+      `${params.backend.thinkingConfigKey}="${normalizeCliThinkingLevelForConfig(params.thinkLevel)}"`,
+    );
   }
   if (!params.useResume && params.systemPrompt && params.backend.systemPromptArg) {
     args.push(params.backend.systemPromptArg, params.systemPrompt);

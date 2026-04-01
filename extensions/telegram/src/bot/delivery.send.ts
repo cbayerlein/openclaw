@@ -4,7 +4,12 @@ import { formatErrorMessage } from "openclaw/plugin-sdk/ssrf-runtime";
 import { withTelegramApiErrorLogging } from "../api-logging.js";
 import { markdownToTelegramHtml } from "../format.js";
 import { normalizeTelegramReplyToMessageId } from "../outbound-params.js";
-import { buildInlineKeyboard } from "../send.js";
+import {
+  buildInlineKeyboard,
+  REPLY_PARAM_FALLBACK,
+  THREAD_PARAM_FALLBACK,
+  withTelegramSendParamFallbacks,
+} from "../send.js";
 import { buildTelegramThreadParams, type TelegramThreadSpec } from "./helpers.js";
 
 const PARSE_ERR_RE = /can't parse entities|parse entities|find end of the entity/i;
@@ -46,34 +51,33 @@ export async function sendTelegramWithThreadFallback<T>(params: {
   shouldLog?: (err: unknown) => boolean;
 }): Promise<T> {
   const allowThreadlessRetry = params.thread?.scope === "dm";
-  const hasThreadId = hasMessageThreadIdParam(params.requestParams);
-  const shouldSuppressFirstErrorLog = (err: unknown) =>
-    allowThreadlessRetry && hasThreadId && isTelegramThreadNotFoundError(err);
+  const shouldSuppressFallbackErrorLog = (
+    err: unknown,
+    effectiveParams: Record<string, unknown> | undefined,
+  ) =>
+    (allowThreadlessRetry &&
+      THREAD_PARAM_FALLBACK.hasFallbackParams(effectiveParams) &&
+      THREAD_PARAM_FALLBACK.shouldFallback(err)) ||
+    (REPLY_PARAM_FALLBACK.hasFallbackParams(effectiveParams) &&
+      REPLY_PARAM_FALLBACK.shouldFallback(err));
   const mergedShouldLog = params.shouldLog
-    ? (err: unknown) => params.shouldLog!(err) && !shouldSuppressFirstErrorLog(err)
-    : (err: unknown) => !shouldSuppressFirstErrorLog(err);
+    ? (effectiveParams: Record<string, unknown> | undefined) => (err: unknown) =>
+        params.shouldLog!(err) && !shouldSuppressFallbackErrorLog(err, effectiveParams)
+    : (effectiveParams: Record<string, unknown> | undefined) => (err: unknown) =>
+        !shouldSuppressFallbackErrorLog(err, effectiveParams);
 
-  try {
-    return await withTelegramApiErrorLogging({
-      operation: params.operation,
-      runtime: params.runtime,
-      shouldLog: mergedShouldLog,
-      fn: () => params.send(params.requestParams),
-    });
-  } catch (err) {
-    if (!allowThreadlessRetry || !hasThreadId || !isTelegramThreadNotFoundError(err)) {
-      throw err;
-    }
-    const retryParams = removeMessageThreadIdParam(params.requestParams);
-    params.runtime.log?.(
-      `telegram ${params.operation}: message thread not found; retrying without message_thread_id`,
-    );
-    return await withTelegramApiErrorLogging({
-      operation: `${params.operation} (threadless retry)`,
-      runtime: params.runtime,
-      fn: () => params.send(retryParams),
-    });
-  }
+  return await withTelegramSendParamFallbacks({
+    requestParams: params.requestParams,
+    label: params.operation,
+    allowThreadFallback: allowThreadlessRetry,
+    attempt: async (effectiveParams, effectiveLabel) =>
+      await withTelegramApiErrorLogging({
+        operation: effectiveLabel,
+        runtime: params.runtime,
+        shouldLog: mergedShouldLog(effectiveParams),
+        fn: () => params.send(effectiveParams ?? {}),
+      }),
+  });
 }
 
 export function buildTelegramSendParams(opts?: {

@@ -369,6 +369,68 @@ describe("gateway agent handler", () => {
     );
   });
 
+  it("forwards newSession and persistModel for authorized callers", async () => {
+    primeMainAgentRun();
+
+    await invokeAgent(
+      {
+        message: "fresh model switch",
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        model: "claude-haiku-4-5",
+        newSession: true,
+        persistModel: true,
+        idempotencyKey: "test-idem-new-session-persist-model",
+      },
+      {
+        reqId: "test-idem-new-session-persist-model",
+        client: {
+          connect: {
+            scopes: ["operator.admin"],
+          },
+        } as AgentHandlerArgs["client"],
+      },
+    );
+
+    const lastCall = mocks.agentCommand.mock.calls.at(-1)?.[0] as
+      | { newSession?: boolean; persistModel?: boolean; model?: string }
+      | undefined;
+    expect(lastCall).toEqual(
+      expect.objectContaining({
+        newSession: true,
+        persistModel: true,
+        model: "claude-haiku-4-5",
+      }),
+    );
+  });
+
+  it("does not forward an existing sessionId when newSession is requested", async () => {
+    primeMainAgentRun({ sessionId: "existing-session-id" });
+
+    await invokeAgent(
+      {
+        message: "start fresh",
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        newSession: true,
+        idempotencyKey: "test-idem-new-session-no-session-id",
+      },
+      {
+        reqId: "test-idem-new-session-no-session-id",
+      },
+    );
+
+    const lastCall = mocks.agentCommand.mock.calls.at(-1)?.[0] as
+      | { newSession?: boolean; sessionId?: string }
+      | undefined;
+    expect(lastCall).toEqual(
+      expect.objectContaining({
+        newSession: true,
+      }),
+    );
+    expect(lastCall?.sessionId).toBeUndefined();
+  });
+
   it("rejects provider and model overrides for write-scoped callers", async () => {
     primeMainAgentRun();
     mocks.agentCommand.mockClear();
@@ -400,6 +462,63 @@ describe("gateway agent handler", () => {
       undefined,
       expect.objectContaining({
         message: "provider/model overrides are not authorized for this caller.",
+      }),
+    );
+  });
+
+  it("rejects persistModel without model before invoking the agent command", async () => {
+    primeMainAgentRun();
+    mocks.agentCommand.mockClear();
+    const respond = vi.fn();
+
+    await invokeAgent(
+      {
+        message: "invalid persist",
+        sessionKey: "agent:main:main",
+        persistModel: true,
+        idempotencyKey: "test-idem-invalid-persist-model",
+      } as AgentParams,
+      {
+        reqId: "test-idem-invalid-persist-model",
+        respond,
+      },
+    );
+
+    expect(mocks.agentCommand).not.toHaveBeenCalled();
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({
+        message: "--persist-model requires --model",
+      }),
+    );
+  });
+
+  it("rejects newSession with sessionId before invoking the agent command", async () => {
+    primeMainAgentRun();
+    mocks.agentCommand.mockClear();
+    const respond = vi.fn();
+
+    await invokeAgent(
+      {
+        message: "invalid session reset",
+        sessionId: "session-123",
+        sessionKey: "agent:main:main",
+        newSession: true,
+        idempotencyKey: "test-idem-invalid-new-session",
+      } as AgentParams,
+      {
+        reqId: "test-idem-invalid-new-session",
+        respond,
+      },
+    );
+
+    expect(mocks.agentCommand).not.toHaveBeenCalled();
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({
+        message: "--new-session cannot be combined with --session-id",
       }),
     );
   });

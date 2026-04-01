@@ -34,6 +34,8 @@ import type { getStatusSummary as getStatusSummaryFn } from "./status.summary.js
 
 type DeferredResult<T> = { ok: true; value: T } | { ok: false; error: unknown };
 
+const DEFAULT_GATEWAY_PROBE_TIMEOUT_MS = 5_000;
+
 let statusScanDepsRuntimeModulePromise:
   | Promise<typeof import("./status.scan.deps.runtime.js")>
   | undefined;
@@ -106,7 +108,7 @@ async function resolveChannelsStatus(params: {
       probe: false,
       timeoutMs: Math.min(8000, params.opts.timeoutMs ?? 10_000),
     },
-    timeoutMs: Math.min(params.opts.all ? 5000 : 2500, params.opts.timeoutMs ?? 10_000),
+    timeoutMs: Math.min(DEFAULT_GATEWAY_PROBE_TIMEOUT_MS, params.opts.timeoutMs ?? 10_000),
   }).catch(() => null);
 }
 

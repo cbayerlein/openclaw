@@ -114,6 +114,32 @@ describe("registerAgentCommands", () => {
     );
   });
 
+  it("forwards new session and model flags to agentCliCommand", async () => {
+    await runCli([
+      "agent",
+      "--message",
+      "hi",
+      "--to",
+      "+1555",
+      "--new-session",
+      "--model",
+      "openai/gpt-5.4",
+      "--persist-model",
+    ]);
+
+    expect(agentCliCommandMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "hi",
+        to: "+1555",
+        newSession: true,
+        model: "openai/gpt-5.4",
+        persistModel: true,
+      }),
+      runtime,
+      { deps: true },
+    );
+  });
+
   it("runs agents add and computes hasFlags based on explicit options", async () => {
     await runCli(["agents", "add", "alpha"]);
     expect(agentsAddCommandMock).toHaveBeenNthCalledWith(

@@ -252,6 +252,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       replyTo?: string;
       sessionId?: string;
       sessionKey?: string;
+      newSession?: boolean;
       thinking?: string;
       deliver?: boolean;
       attachments?: Array<{
@@ -274,9 +275,29 @@ export const agentHandlers: GatewayRequestHandlers = {
       idempotencyKey: string;
       timeout?: number;
       bestEffortDeliver?: boolean;
+      persistModel?: boolean;
       label?: string;
       inputProvenance?: InputProvenance;
     };
+    if (request.newSession === true && request.sessionId?.trim()) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "--new-session cannot be combined with --session-id",
+        ),
+      );
+      return;
+    }
+    if (request.persistModel === true && !request.model?.trim()) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "--persist-model requires --model"),
+      );
+      return;
+    }
     const senderIsOwner = resolveSenderIsOwnerFromClient(client);
     const allowModelOverride = resolveAllowModelOverrideFromClient(client);
     const canResetSession = resolveCanResetSessionFromClient(client);
@@ -461,9 +482,10 @@ export const agentHandlers: GatewayRequestHandlers = {
     if (requestedSessionKey) {
       const { cfg, storePath, entry, canonicalKey } = loadSessionEntry(requestedSessionKey);
       cfgForAgent = cfg;
-      isNewSession = !entry;
+      const forceNewSession = request.newSession === true;
+      isNewSession = forceNewSession || !entry;
       const now = Date.now();
-      const sessionId = entry?.sessionId ?? randomUUID();
+      const sessionId = forceNewSession ? undefined : (entry?.sessionId ?? randomUUID());
       const labelValue = request.label?.trim() || entry?.label;
       const sessionAgent = resolveAgentIdFromSessionKey(canonicalKey);
       spawnedByValue = canonicalizeSpawnedByForAgent(cfg, sessionAgent, entry?.spawnedBy);
@@ -487,7 +509,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       resolvedGroupSpace = resolvedGroupSpace || inheritedGroup?.groupSpace;
       const deliveryFields = normalizeSessionDeliveryFields(entry);
       const nextEntryPatch: SessionEntry = {
-        sessionId,
+        sessionId: sessionId ?? entry?.sessionId ?? randomUUID(),
         updatedAt: now,
         thinkingLevel: entry?.thinkingLevel,
         fastMode: entry?.fastMode,
@@ -535,7 +557,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       resolvedSessionKey = canonicalSessionKey;
       const agentId = resolveAgentIdFromSessionKey(canonicalSessionKey);
       const mainSessionKey = resolveAgentMainSessionKey({ cfg, agentId });
-      if (storePath) {
+      if (storePath && !forceNewSession) {
         const persisted = await updateSessionStore(storePath, (store) => {
           const { primaryKey } = migrateAndPruneGatewaySessionStoreKey({
             cfg,
@@ -722,7 +744,9 @@ export const agentHandlers: GatewayRequestHandlers = {
         to: resolvedTo,
         sessionId: resolvedSessionId,
         sessionKey: resolvedSessionKey,
+        newSession: request.newSession,
         thinking: request.thinking,
+        persistModel: request.persistModel,
         deliver,
         deliveryTargetMode,
         channel: resolvedChannel,

@@ -8,6 +8,8 @@ export { pickGatewaySelfPresence } from "./gateway-presence.js";
 
 let gatewayProbeModulePromise: Promise<typeof import("./status.gateway-probe.js")> | undefined;
 
+const DEFAULT_GATEWAY_PROBE_TIMEOUT_MS = 5_000;
+
 function loadGatewayProbeModule() {
   gatewayProbeModulePromise ??= import("./status.gateway-probe.js");
   return gatewayProbeModulePromise;
@@ -86,7 +88,7 @@ export async function resolveGatewayProbeSnapshot(params: {
   const gatewayProbe = await probeGateway({
     url: gatewayConnection.url,
     auth: gatewayProbeAuthResolution.auth,
-    timeoutMs: Math.min(params.opts.all ? 5000 : 2500, params.opts.timeoutMs ?? 10_000),
+    timeoutMs: Math.min(DEFAULT_GATEWAY_PROBE_TIMEOUT_MS, params.opts.timeoutMs ?? 10_000),
     detailLevel: "presence",
   }).catch(() => null);
   if (gatewayProbeAuthWarning && gatewayProbe?.ok === false) {

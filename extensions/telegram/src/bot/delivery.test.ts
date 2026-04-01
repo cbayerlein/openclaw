@@ -115,6 +115,12 @@ function createThreadNotFoundError(operation = "sendMessage") {
   );
 }
 
+function createReplyTargetNotFoundError(operation = "sendMessage") {
+  return new Error(
+    `GrammyError: Call to '${operation}' failed! (400: Bad Request: message to be replied not found)`,
+  );
+}
+
 function createVoiceFailureHarness(params: {
   voiceError: Error;
   sendMessageResult?: { message_id: number; chat: { id: string } };
@@ -842,6 +848,39 @@ describe("deliverReplies", () => {
         }),
       );
     }
+  });
+
+  it("retries text replies without reply targeting when the referenced message no longer exists", async () => {
+    const runtime = createRuntime();
+    const sendMessage = vi
+      .fn()
+      .mockRejectedValueOnce(createReplyTargetNotFoundError("sendMessage"))
+      .mockResolvedValueOnce({
+        message_id: 22,
+        chat: { id: "123" },
+      });
+    const bot = createBot({ sendMessage });
+
+    await deliverReplies({
+      replies: [{ text: "hello", replyToId: "800" }],
+      chatId: "123",
+      token: "tok",
+      runtime,
+      bot,
+      replyToMode: "all",
+      textLimit: 4000,
+    });
+
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(sendMessage.mock.calls[0]?.[2]).toEqual(
+      expect.objectContaining({
+        reply_to_message_id: 800,
+        allow_sending_without_reply: true,
+      }),
+    );
+    expect(sendMessage.mock.calls[1]?.[2]).not.toHaveProperty("reply_to_message_id");
+    expect(sendMessage.mock.calls[1]?.[2]).not.toHaveProperty("allow_sending_without_reply");
+    expect(runtime.error).not.toHaveBeenCalled();
   });
 
   it("replyToMode 'first' only applies reply-to to first media item", async () => {

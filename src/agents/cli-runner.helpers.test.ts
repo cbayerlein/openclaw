@@ -117,4 +117,20 @@ describe("buildCliArgs", () => {
       }),
     ).toEqual(["exec", "resume", "thread-123", "--model", "gpt-5.4"]);
   });
+
+  it("passes codex thinking overrides via config flags", () => {
+    expect(
+      buildCliArgs({
+        backend: {
+          command: "codex",
+          modelArg: "--model",
+          thinkingConfigKey: "model_reasoning_effort",
+        },
+        baseArgs: ["exec"],
+        modelId: "gpt-5.4",
+        thinkLevel: "adaptive",
+        useResume: false,
+      }),
+    ).toEqual(["exec", "--model", "gpt-5.4", "-c", 'model_reasoning_effort="medium"']);
+  });
 });

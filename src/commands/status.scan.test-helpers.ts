@@ -1,5 +1,6 @@
 import { vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.js";
+import type { GatewayProbeResult } from "../gateway/probe.js";
 
 export function createStatusScanSharedMocks(configPathLabel: string) {
   return {
@@ -294,7 +295,7 @@ export function applyStatusScanDefaults(
     resolvedConfig?: OpenClawConfig;
     summary?: ReturnType<typeof createStatusSummary>;
     update?: ReturnType<typeof createStatusUpdateResult> | false;
-    gatewayProbe?: ReturnType<typeof createStatusGatewayProbeFailure> | false;
+    gatewayProbe?: GatewayProbeResult | false;
     memoryManager?: ReturnType<typeof createStatusMemorySearchManager>;
   } = {},
 ) {

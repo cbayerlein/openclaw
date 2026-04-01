@@ -163,6 +163,12 @@ async function prepareAgentCommandExecution(
   if (!opts.to && !opts.sessionId && !opts.sessionKey && !opts.agentId) {
     throw new Error("Pass --to <E.164>, --session-id, or --agent to choose a session");
   }
+  if (opts.newSession === true && opts.sessionId) {
+    throw new Error("--new-session cannot be combined with --session-id");
+  }
+  if (opts.persistModel === true && !opts.model) {
+    throw new Error("--persist-model requires --model");
+  }
 
   const loadedRaw = loadConfig();
   const sourceConfig = await (async () => {
@@ -257,18 +263,20 @@ async function prepareAgentCommandExecution(
     sessionId: opts.sessionId,
     sessionKey: opts.sessionKey,
     agentId: agentIdOverride,
+    forceNewSession: opts.newSession === true,
   });
 
   const {
     sessionId,
     sessionKey,
-    sessionEntry: sessionEntryRaw,
+    sessionEntry: sessionEntryResolved,
     sessionStore,
     storePath,
     isNewSession,
     persistedThinking,
     persistedVerbose,
   } = sessionResolution;
+  let sessionEntry = sessionEntryResolved;
   const sessionAgentId =
     agentIdOverride ??
     resolveSessionAgentId({
@@ -309,7 +317,7 @@ async function prepareAgentCommandExecution(
     timeoutMs,
     sessionId,
     sessionKey,
-    sessionEntry: sessionEntryRaw,
+    sessionEntry,
     sessionStore,
     storePath,
     isNewSession,
@@ -530,8 +538,7 @@ async function agentCommandInternal(
 
     // Persist explicit /command overrides to the session store when we have a key.
     if (sessionStore && sessionKey) {
-      const entry = sessionStore[sessionKey] ??
-        sessionEntry ?? { sessionId, updatedAt: Date.now() };
+      const entry = sessionEntry ?? { sessionId, updatedAt: Date.now() };
       const next: SessionEntry = { ...entry, sessionId, updatedAt: Date.now() };
       if (thinkOverride) {
         next.thinkingLevel = thinkOverride;
@@ -568,6 +575,9 @@ async function agentCommandInternal(
       typeof opts.model === "string"
         ? normalizeExplicitOverrideInput(opts.model, "model")
         : undefined;
+    if (opts.persistModel === true && !sessionKey) {
+      throw new Error("Persisting a model override requires a session key.");
+    }
     const hasExplicitRunOverride = Boolean(explicitProviderOverride || explicitModelOverride);
     if (hasExplicitRunOverride && opts.allowModelOverride !== true) {
       throw new Error("Model override is not authorized for this caller.");
@@ -627,7 +637,7 @@ async function agentCommandInternal(
         model = normalizedStored.model;
       }
     }
-    const providerForAuthProfileValidation = provider;
+    let providerForAuthProfileValidation = provider;
     if (hasExplicitRunOverride) {
       const explicitRef = explicitModelOverride
         ? explicitProviderOverride
@@ -647,6 +657,39 @@ async function agentCommandInternal(
       }
       provider = explicitRef.provider;
       model = explicitRef.model;
+      if (opts.persistModel === true && sessionStore && sessionKey) {
+        providerForAuthProfileValidation = provider;
+        const entry = sessionEntry ?? { sessionId, updatedAt: Date.now() };
+        const next: SessionEntry = { ...entry, sessionId, updatedAt: Date.now() };
+        const normalizedDefaultRef = normalizeModelRef(defaultProvider, defaultModel);
+        const normalizedExplicitRef = normalizeModelRef(explicitRef.provider, explicitRef.model);
+        const { updated } = applyModelOverrideToSessionEntry({
+          entry: next,
+          selection: {
+            provider: normalizedExplicitRef.provider,
+            model: normalizedExplicitRef.model,
+            isDefault:
+              normalizedExplicitRef.provider === normalizedDefaultRef.provider &&
+              normalizedExplicitRef.model === normalizedDefaultRef.model,
+          },
+        });
+        if (updated) {
+          await persistSessionEntry({
+            sessionStore,
+            sessionKey,
+            storePath,
+            entry: next,
+          });
+        }
+        sessionEntry = next;
+      } else if (sessionEntry) {
+        // One-off model overrides should not inherit a persisted session model
+        // selection into the live run path.
+        const next: SessionEntry = { ...sessionEntry };
+        delete next.providerOverride;
+        delete next.modelOverride;
+        sessionEntry = next;
+      }
     }
     if (sessionEntry) {
       const authProfileId = sessionEntry.authProfileOverride;
@@ -698,6 +741,16 @@ async function agentCommandInternal(
         });
       }
     }
+    if (opts.newSession === true && sessionStore && sessionKey) {
+      const freshEntry: SessionEntry = { sessionId, updatedAt: Date.now() };
+      await persistSessionEntry({
+        sessionStore,
+        sessionKey,
+        storePath,
+        entry: freshEntry,
+      });
+      sessionEntry = freshEntry;
+    }
     let sessionFile: string | undefined;
     if (sessionStore && sessionKey) {
       const resolvedSessionFile = await resolveSessionTranscriptFile({
@@ -743,7 +796,8 @@ async function agentCommandInternal(
       const effectiveFallbacksOverride = resolveEffectiveModelFallbacks({
         cfg,
         agentId: sessionAgentId,
-        hasSessionModelOverride: Boolean(storedModelOverride),
+        hasSessionModelOverride:
+          Boolean(storedModelOverride) && !(hasExplicitRunOverride && opts.persistModel !== true),
       });
 
       // Track model fallback attempts so retries on an existing session don't

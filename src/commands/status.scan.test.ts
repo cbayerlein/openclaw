@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { GatewayProbeResult } from "../gateway/probe.js";
 import {
   applyStatusScanDefaults,
   createStatusMemorySearchConfig,
@@ -40,7 +41,7 @@ function configureScanStatus(
     resolvedConfig?: ReturnType<typeof createStatusScanConfig>;
     summary?: ReturnType<typeof createStatusSummary>;
     update?: false;
-    gatewayProbe?: false;
+    gatewayProbe?: GatewayProbeResult | false;
     memoryConfigured?: boolean;
   } = {},
 ) {
@@ -230,5 +231,36 @@ describe("scanStatus", () => {
     expect(mocks.ensurePluginRegistryLoaded).toHaveBeenCalledWith({
       scope: "configured-channels",
     });
+  });
+
+  it("uses the raised default timeout budget for gateway probes and channel status", async () => {
+    mocks.resolveConfigPath.mockReturnValue(import.meta.filename);
+    configureScanStatus({
+      gatewayProbe: {
+        ok: true,
+        url: "ws://127.0.0.1:18789",
+        connectLatencyMs: 10,
+        error: null,
+        close: null,
+        health: null,
+        status: null,
+        presence: null,
+        configSnapshot: null,
+      },
+    });
+
+    await scanStatus({ json: false, timeoutMs: 9_000 }, {} as never);
+
+    expect(mocks.probeGateway).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timeoutMs: 5_000,
+      }),
+    );
+    expect(mocks.callGateway).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "channels.status",
+        timeoutMs: 5_000,
+      }),
+    );
   });
 });

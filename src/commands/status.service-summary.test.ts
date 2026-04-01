@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { GatewayService } from "../daemon/service.js";
 import type { GatewayServiceEnvArgs } from "../daemon/service.js";
 import { createMockGatewayService } from "../daemon/service.test-helpers.js";
+import * as systemd from "../daemon/systemd.js";
 import { readServiceStatusSummary } from "./status.service-summary.js";
 
 function createService(overrides: Partial<GatewayService>): GatewayService {
@@ -45,6 +46,12 @@ describe("readServiceStatusSummary", () => {
   });
 
   it("keeps missing services as not installed when nothing is running", async () => {
+    vi.spyOn(systemd, "readSystemdSystemServiceExecStart").mockResolvedValue(null);
+    vi.spyOn(systemd, "isSystemdSystemServiceEnabled").mockResolvedValue(false);
+    vi.spyOn(systemd, "readSystemdSystemServiceRuntime").mockResolvedValue({
+      status: "stopped",
+    });
+
     const summary = await readServiceStatusSummary(createService({}), "Daemon");
 
     expect(summary.installed).toBe(false);
@@ -89,4 +96,31 @@ describe("readServiceStatusSummary", () => {
     expect(summary.loaded).toBe(true);
     expect(summary.runtime).toMatchObject({ status: "running" });
   });
+
+  it.runIf(process.platform === "linux")(
+    "detects systemd system services when no user unit is installed",
+    async () => {
+      vi.spyOn(systemd, "readSystemdSystemServiceExecStart").mockResolvedValue({
+        programArguments: ["node", "dist/entry.js", "gateway"],
+      });
+      vi.spyOn(systemd, "isSystemdSystemServiceEnabled").mockResolvedValue(true);
+      vi.spyOn(systemd, "readSystemdSystemServiceRuntime").mockResolvedValue({
+        status: "running",
+      });
+
+      const summary = await readServiceStatusSummary(
+        createService({
+          readCommand: vi.fn(async () => null),
+          readRuntime: vi.fn(async () => ({ status: "stopped" })),
+        }),
+        "Daemon",
+      );
+
+      expect(summary.installed).toBe(true);
+      expect(summary.managedByOpenClaw).toBe(true);
+      expect(summary.externallyManaged).toBe(false);
+      expect(summary.loadedText).toBe("enabled");
+      expect(summary.runtime).toMatchObject({ status: "running" });
+    },
+  );
 });

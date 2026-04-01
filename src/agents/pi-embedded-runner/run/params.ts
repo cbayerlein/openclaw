@@ -80,6 +80,8 @@ export type RunEmbeddedPiAgentParams = {
   disableTools?: boolean;
   provider?: string;
   model?: string;
+  /** Ignore persisted session model selection for this run (one-shot overrides). */
+  ignorePersistedLiveSessionSelection?: boolean;
   authProfileId?: string;
   authProfileIdSource?: "auto" | "user";
   thinkLevel?: ThinkLevel;

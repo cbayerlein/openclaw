@@ -235,13 +235,15 @@ export async function runEmbeddedPiAgent(
         authProfileIdSource: params.authProfileIdSource,
       });
       const resolvePersistedLiveSelection = () =>
-        resolveLiveSessionModelSelection({
-          cfg: params.config,
-          sessionKey: params.sessionKey,
-          agentId: workspaceResolution.agentId,
-          defaultProvider: provider,
-          defaultModel: modelId,
-        });
+        params.ignorePersistedLiveSessionSelection === true
+          ? null
+          : resolveLiveSessionModelSelection({
+              cfg: params.config,
+              sessionKey: params.sessionKey,
+              agentId: workspaceResolution.agentId,
+              defaultProvider: provider,
+              defaultModel: modelId,
+            });
       const {
         advanceAuthProfile,
         initializeAuthProfile,

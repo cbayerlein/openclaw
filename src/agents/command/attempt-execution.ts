@@ -385,6 +385,8 @@ export function runAgentAttempt(params: {
     clientTools: params.opts.clientTools,
     provider: params.providerOverride,
     model: params.modelOverride,
+    ignorePersistedLiveSessionSelection:
+      Boolean(params.opts.model || params.opts.provider) && params.opts.persistModel !== true,
     authProfileId,
     authProfileIdSource: authProfileId ? params.sessionEntry?.authProfileOverrideSource : undefined,
     thinkLevel: params.resolvedThinkLevel,
