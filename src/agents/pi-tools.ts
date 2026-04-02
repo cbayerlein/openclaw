@@ -21,6 +21,7 @@ import type { ProcessToolDefaults } from "./bash-tools.process.js";
 import { execSchema, processSchema } from "./bash-tools.schemas.js";
 import { listChannelAgentTools } from "./channel-tools.js";
 import { shouldSuppressManagedWebSearchTool } from "./codex-native-web-search.js";
+import { resolveGuardrailConfig, type ActivePlanRef } from "./guardrails.js";
 import { resolveImageSanitizationLimits } from "./image-sanitization.js";
 import type { ModelAuthMode } from "./model-auth.js";
 import { resolveOpenClawPluginToolsForOptions } from "./openclaw-plugin-tools.js";
@@ -272,6 +273,8 @@ export function createOpenClawCodingTools(options?: {
   runId?: string;
   /** Diagnostic trace context for hook/log correlation during this run. */
   trace?: DiagnosticTraceContext;
+  /** Mutable active plan shared across tool calls in this run. */
+  activePlanRef?: ActivePlanRef;
   /** What initiated this run (for trigger-specific tool restrictions). */
   trigger?: string;
   /** Stable cron job identifier populated for cron-triggered runs. */
@@ -399,6 +402,7 @@ export function createOpenClawCodingTools(options?: {
     modelProvider: options?.modelProvider,
     modelId: options?.modelId,
   });
+  const guardrailConfig = resolveGuardrailConfig({ cfg: options?.config, agentId });
   // Prefer the already-resolved sandbox context policy. Recomputing from
   // sessionKey/config can lose the real sandbox agent when callers pass a
   // legacy alias like `main` instead of an agent session key.
@@ -747,6 +751,9 @@ export function createOpenClawCodingTools(options?: {
           authProfileStore: options?.authProfileStore,
           senderIsOwner: options?.senderIsOwner,
           sessionId: options?.sessionId,
+          activePlanRef: options?.activePlanRef,
+          runId: options?.runId,
+          persistSessionPlan: guardrailConfig.persistSessionPlan,
           onYield: options?.onYield,
           allowGatewaySubagentBinding: options?.allowGatewaySubagentBinding,
           recordToolPrepStage: options?.recordToolPrepStage,
@@ -841,6 +848,9 @@ export function createOpenClawCodingTools(options?: {
       sessionId: options?.sessionId,
       runId: options?.runId,
       ...(options?.trace ? { trace: options.trace } : {}),
+      workspaceDir: workspaceRoot,
+      activePlanRef: options?.activePlanRef,
+      guardrails: guardrailConfig,
       loopDetection: resolveToolLoopDetectionConfig({ cfg: options?.config, agentId }),
       onToolOutcome: options?.onToolOutcome,
     }),

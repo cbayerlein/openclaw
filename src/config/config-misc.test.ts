@@ -341,8 +341,27 @@ describe("gateway.controlUi.chatMessageMaxWidth", () => {
   });
 });
 
-describe("plugins.entries.*.hooks", () => {
-  it.each([true, false])("accepts allowConversationAccess=%s", (allowConversationAccess) => {
+describe("tools planning and edit-preference guardrails", () => {
+  it("accepts planning and editPreference config", () => {
+    const result = validateConfigObject({
+      tools: {
+        planning: {
+          mode: "advisory",
+          persistSessionPlan: true,
+          requirement: "almost_always",
+        },
+        editPreference: {
+          mode: "enforced",
+          preferredTool: "apply_patch",
+        },
+      },
+    });
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe("plugins.entries.*.hooks.allowPromptInjection", () => {
+  it.each([true, false])("accepts boolean values with allowConversationAccess=%s", (allowConversationAccess) => {
     const result = OpenClawSchema.safeParse({
       plugins: {
         entries: {

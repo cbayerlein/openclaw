@@ -80,6 +80,14 @@ const CORE_TOOL_DEFINITIONS: CoreToolDefinition[] = [
     profiles: ["coding"],
   },
   {
+    id: "update_plan",
+    label: "update_plan",
+    description: "Track active session plan",
+    sectionId: "agents",
+    profiles: ["coding", "messaging"],
+    includeInOpenClawGroup: true,
+  },
+  {
     id: "exec",
     label: "exec",
     description: EXEC_TOOL_DISPLAY_SUMMARY,

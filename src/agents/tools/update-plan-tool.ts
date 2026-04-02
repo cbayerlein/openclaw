@@ -1,23 +1,42 @@
+import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import { Type } from "typebox";
+import { normalizeStoreSessionKey, updateSessionStore } from "../../config/sessions/store.js";
+import type { SessionActivePlan } from "../../config/sessions/types.js";
+import { emitAgentEvent } from "../../infra/agent-events.js";
+import { enqueueSystemEvent } from "../../infra/system-events.js";
+import {
+  createActivePlan,
+  type ActivePlanRef,
+  summarizePlan,
+  UPDATE_PLAN_TOOL_NAME,
+  validateActivePlanInput,
+} from "../guardrails.js";
 import { stringEnum } from "../schema/typebox.js";
 import {
   describeUpdatePlanTool,
   UPDATE_PLAN_TOOL_DISPLAY_SUMMARY,
 } from "../tool-description-presets.js";
-import { type AnyAgentTool, ToolInputError, readStringParam } from "./common.js";
+import {
+  type AnyAgentTool,
+  ToolInputError,
+  readStringParam,
+  textResult,
+} from "./common.js";
 
 const PLAN_STEP_STATUSES = ["pending", "in_progress", "completed"] as const;
 
-const UpdatePlanToolSchema = Type.Object({
+const updatePlanSchema = Type.Object({
   explanation: Type.Optional(
     Type.String({
-      description: "Optional short note explaining what changed in the plan.",
+      description: "Optional concise explanation for this plan update.",
     }),
   ),
   plan: Type.Array(
     Type.Object(
       {
-        step: Type.String({ description: "Short plan step." }),
+        step: Type.String({
+          description: "Human-readable plan step.",
+        }),
         status: stringEnum(PLAN_STEP_STATUSES, {
           description: 'One of "pending", "in_progress", or "completed".',
         }),
@@ -25,8 +44,8 @@ const UpdatePlanToolSchema = Type.Object({
       { additionalProperties: true },
     ),
     {
+      description: "Ordered plan steps with stable statuses.",
       minItems: 1,
-      description: "Ordered list of plan steps. At most one step may be in_progress.",
     },
   ),
 });
@@ -34,6 +53,15 @@ const UpdatePlanToolSchema = Type.Object({
 type UpdatePlanStep = {
   step: string;
   status: (typeof PLAN_STEP_STATUSES)[number];
+};
+
+type UpdatePlanToolParams = {
+  sessionKey?: string;
+  sessionId?: string;
+  storePath?: string;
+  runId?: string;
+  activePlanRef?: ActivePlanRef;
+  persistSessionPlan?: boolean;
 };
 
 function readPlanSteps(params: Record<string, unknown>): UpdatePlanStep[] {
@@ -73,25 +101,111 @@ function readPlanSteps(params: Record<string, unknown>): UpdatePlanStep[] {
   return steps;
 }
 
-export function createUpdatePlanTool(): AnyAgentTool {
+function buildEphemeralResult(args: Record<string, unknown>): AgentToolResult<{
+  status: "updated";
+  explanation?: string;
+  plan: UpdatePlanStep[];
+}> {
+  const explanation = readStringParam(args, "explanation");
+  const plan = readPlanSteps(args);
   return {
-    label: "Update Plan",
-    name: "update_plan",
-    displaySummary: UPDATE_PLAN_TOOL_DISPLAY_SUMMARY,
-    description: describeUpdatePlanTool(),
-    parameters: UpdatePlanToolSchema,
-    execute: async (_toolCallId, args) => {
-      const params = args as Record<string, unknown>;
-      const explanation = readStringParam(params, "explanation");
-      const plan = readPlanSteps(params);
-      return {
-        content: [],
-        details: {
-          status: "updated" as const,
-          ...(explanation ? { explanation } : {}),
-          plan,
-        },
-      };
+    content: [],
+    details: {
+      status: "updated" as const,
+      ...(explanation ? { explanation } : {}),
+      plan,
     },
   };
+}
+
+function buildPersistentTool(
+  params: Required<Pick<UpdatePlanToolParams, "sessionKey" | "storePath">> &
+    Omit<UpdatePlanToolParams, "sessionKey" | "storePath">,
+): AgentTool<typeof updatePlanSchema, { activePlan: SessionActivePlan }> {
+  const normalizedSessionKey = normalizeStoreSessionKey(params.sessionKey);
+
+  return {
+    name: UPDATE_PLAN_TOOL_NAME,
+    label: UPDATE_PLAN_TOOL_NAME,
+    displaySummary: UPDATE_PLAN_TOOL_DISPLAY_SUMMARY,
+    description: describeUpdatePlanTool(),
+    parameters: updatePlanSchema,
+    execute: async (_toolCallId, args) => {
+      const hadExistingPlan = Boolean(params.activePlanRef?.value);
+      const sessionId = params.sessionId?.trim() || undefined;
+      const record = (args ?? {}) as {
+        explanation?: string;
+        plan?: Array<{ step?: unknown; status?: unknown }>;
+      };
+      const validated = validateActivePlanInput({
+        explanation: record.explanation,
+        plan: Array.isArray(record.plan) ? record.plan : [],
+      });
+      const activePlan = createActivePlan(validated);
+
+      if (params.activePlanRef) {
+        params.activePlanRef.value = activePlan;
+      }
+      if (params.persistSessionPlan !== false) {
+        await updateSessionStore(params.storePath, (store) => {
+          let targetKey = normalizedSessionKey;
+          let existing = store[targetKey];
+          if (!existing && sessionId) {
+            const matchingEntry = Object.entries(store).find(
+              ([, candidate]) => candidate?.sessionId === sessionId,
+            );
+            if (matchingEntry) {
+              [targetKey, existing] = matchingEntry;
+            }
+          }
+          store[targetKey] = {
+            ...(existing ?? {
+              sessionId: sessionId ?? normalizedSessionKey,
+              updatedAt: Date.now(),
+            }),
+            activePlan,
+            updatedAt: Date.now(),
+          };
+        });
+      }
+
+      const summary = summarizePlan(activePlan);
+      emitAgentEvent({
+        runId: params.runId ?? params.sessionKey,
+        sessionKey: normalizedSessionKey,
+        stream: "guardrail",
+        data: {
+          event: hadExistingPlan ? "plan_updated" : "plan_created",
+          activePlan,
+        },
+      });
+      enqueueSystemEvent(summary, { sessionKey: normalizedSessionKey });
+      return textResult(summary, { activePlan });
+    },
+  };
+}
+
+export function createUpdatePlanTool(): AnyAgentTool;
+export function createUpdatePlanTool(
+  params: UpdatePlanToolParams,
+): AgentTool<typeof updatePlanSchema, { activePlan: SessionActivePlan }> | AnyAgentTool | null;
+export function createUpdatePlanTool(params?: UpdatePlanToolParams) {
+  const sessionKey = params?.sessionKey?.trim();
+  const storePath = params?.storePath?.trim();
+  if (sessionKey && storePath) {
+    return buildPersistentTool({
+      ...params,
+      sessionKey,
+      storePath,
+    });
+  }
+
+  return {
+    label: "Update Plan",
+    name: UPDATE_PLAN_TOOL_NAME,
+    displaySummary: UPDATE_PLAN_TOOL_DISPLAY_SUMMARY,
+    description: describeUpdatePlanTool(),
+    parameters: updatePlanSchema,
+    execute: async (_toolCallId, args) => buildEphemeralResult((args ?? {}) as Record<string, unknown>),
+  } satisfies AnyAgentTool;
 }

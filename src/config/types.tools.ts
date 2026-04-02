@@ -312,6 +312,24 @@ export type FsToolsConfig = {
   workspaceOnly?: boolean;
 };
 
+export type GuardrailMode = "off" | "advisory" | "enforced";
+
+export type PlanningToolsConfig = {
+  /** Planning guardrail mode for substantial tool-driven work. Default: enforced. */
+  mode?: GuardrailMode;
+  /** Persist the active plan on the session entry. Default: true. */
+  persistSessionPlan?: boolean;
+  /** Planning strictness profile. Default: almost_always. */
+  requirement?: "almost_always";
+};
+
+export type EditPreferenceToolsConfig = {
+  /** Structured-edit preference mode. Default: enforced. */
+  mode?: GuardrailMode;
+  /** Preferred structured edit tool. Default: apply_patch. */
+  preferredTool?: "apply_patch";
+};
+
 export type AgentToolsConfig = {
   /** Base tool profile applied before allow/deny lists. */
   profile?: ToolProfileId;
@@ -332,6 +350,10 @@ export type AgentToolsConfig = {
   exec?: ExecToolConfig;
   /** Filesystem tool path guards. */
   fs?: FsToolsConfig;
+  /** Planning guardrail configuration for this agent. */
+  planning?: PlanningToolsConfig;
+  /** Structured edit-preference guardrail configuration for this agent. */
+  editPreference?: EditPreferenceToolsConfig;
   /** Runtime loop detection for repetitive/ stuck tool-call patterns. */
   loopDetection?: ToolLoopDetectionConfig;
   sandbox?: {
@@ -654,6 +676,10 @@ export type ToolsConfig = {
   exec?: ExecToolConfig;
   /** Filesystem tool path guards. */
   fs?: FsToolsConfig;
+  /** Planning guardrail configuration. */
+  planning?: PlanningToolsConfig;
+  /** Structured edit-preference guardrail configuration. */
+  editPreference?: EditPreferenceToolsConfig;
   /** Runtime loop detection for repetitive/ stuck tool-call patterns. */
   loopDetection?: ToolLoopDetectionConfig;
   /** Sub-agent tool policy defaults (deny wins). */

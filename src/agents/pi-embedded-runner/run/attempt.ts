@@ -79,6 +79,7 @@ import { DEFAULT_CONTEXT_TOKENS } from "../../defaults.js";
 import { resolveOpenClawReferencePaths } from "../../docs-path.js";
 import { isTimeoutError } from "../../failover-error.js";
 import { resolveHeartbeatPromptForSystemPrompt } from "../../heartbeat-system-prompt.js";
+import type { ActivePlanRef } from "../../guardrails.js";
 import { resolveImageSanitizationLimits } from "../../image-sanitization.js";
 import { stripHistoricalRuntimeContextCustomMessages } from "../../internal-runtime-context.js";
 import { buildModelAliasLines } from "../../model-alias-lines.js";
@@ -791,6 +792,7 @@ export async function runEmbeddedAttempt(
       isRawModelRun,
       toolsAllow: params.toolsAllow,
     });
+    const activePlanRef: ActivePlanRef = { value: params.activePlan };
     const toolsRaw = !toolConstructionPlan.constructTools
       ? []
       : (() => {
@@ -828,6 +830,7 @@ export async function runEmbeddedAttempt(
                 : undefined,
             sessionId: params.sessionId,
             runId: params.runId,
+            activePlanRef,
             agentDir,
             workspaceDir: effectiveWorkspace,
             // When sandboxing uses a copied workspace (`ro` or `none`), effectiveWorkspace points
@@ -1286,6 +1289,7 @@ export async function runEmbeddedAttempt(
         messageToolHints,
         sandboxInfo,
         tools: effectiveTools,
+        activePlan: activePlanRef.value,
         modelAliasLines: buildModelAliasLines(params.config),
         userTimezone,
         userTime,

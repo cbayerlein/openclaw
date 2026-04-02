@@ -6,6 +6,7 @@ import {
   hasNativeApprovalPromptRuntimeCapability,
   isKnownNativeApprovalPromptChannel,
 } from "../channels/plugins/native-approval-prompt.js";
+import type { SessionActivePlan } from "../config/sessions/types.js";
 import type { MemoryCitationsMode } from "../config/types.memory.js";
 import { buildMemoryPromptSection } from "../plugins/memory-state.js";
 import {
@@ -19,6 +20,7 @@ import {
   buildLimitedBootstrapPromptLines,
 } from "./bootstrap-prompt.js";
 import type { ResolvedTimeFormat } from "./date-time.js";
+import { buildPlanPromptSection } from "./guardrails.js";
 import type { EmbeddedContextFile } from "./pi-embedded-helpers.js";
 import type {
   EmbeddedFullAccessBlockedReason,
@@ -579,6 +581,7 @@ export function buildAgentSystemPrompt(params: {
   docsPath?: string;
   sourcePath?: string;
   workspaceNotes?: string[];
+  activePlan?: SessionActivePlan;
   ttsHint?: string;
   /** Controls which hardcoded sections to include. Defaults to "full". */
   promptMode?: PromptMode;
@@ -629,6 +632,7 @@ export function buildAgentSystemPrompt(params: {
     ls: "List directory contents",
     exec: "Run shell commands (pty available for TTY-required CLIs)",
     process: "Manage background exec sessions",
+    update_plan: "Create or replace the active session plan",
     web_search: "Search the web using the configured provider",
     web_fetch: "Fetch and extract readable content from a URL",
     // Channel docking: add login tools here when a channel needs interactive linking.
@@ -778,6 +782,10 @@ export function buildAgentSystemPrompt(params: {
   const silentReplyPromptMode = sourceMessageToolOnly
     ? "none"
     : (params.silentReplyPromptMode ?? "generic");
+  const planningSection =
+    !isMinimal && availableTools.has("update_plan")
+      ? buildPlanPromptSection(params.activePlan)
+      : [];
   const sandboxContainerWorkspace = params.sandboxInfo?.containerWorkspaceDir?.trim();
   const sanitizedWorkspaceDir = sanitizeForPromptLiteral(params.workspaceDir);
   const sanitizedSandboxContainerWorkspace = sandboxContainerWorkspace
@@ -1141,6 +1149,7 @@ export function buildAgentSystemPrompt(params: {
       messageToolHints: params.messageToolHints,
       sourceReplyDeliveryMode: params.sourceReplyDeliveryMode,
     }),
+    ...planningSection,
     ...buildVoiceSection({ isMinimal, ttsHint: params.ttsHint }),
   );
 

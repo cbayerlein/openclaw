@@ -223,7 +223,10 @@ export function resolveSessionKeyForRequest(opts: {
   const storePath = resolveStorePath(sessionCfg?.store, {
     agentId: storeAgentId,
   });
-  const sessionStore = loadSessionStore(storePath);
+  // Agent runs can mutate the session store from a separate embedded-runner process
+  // (for example via update_plan). Resolve against fresh on-disk state so follow-up
+  // turns do not reuse stale per-process cache entries.
+  const sessionStore = loadSessionStore(storePath, { skipCache: true });
 
   const ctx: MsgContext | undefined = opts.to?.trim() ? { From: opts.to } : undefined;
   let sessionKey: string | undefined =

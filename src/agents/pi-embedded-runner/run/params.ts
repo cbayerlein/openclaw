@@ -5,6 +5,7 @@ import type { ReplyPayload } from "../../../auto-reply/reply-payload.js";
 import type { ReplyOperation } from "../../../auto-reply/reply/reply-run-registry.js";
 import type { ReasoningLevel, ThinkLevel, VerboseLevel } from "../../../auto-reply/thinking.js";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
+import type { SessionActivePlan } from "../../../config/sessions/types.js";
 import type { PromptImageOrderEntry } from "../../../media/prompt-image-order.js";
 import type { CommandQueueEnqueueFn } from "../../../process/command-queue.types.js";
 import type { InputProvenance } from "../../../sessions/input-provenance.js";
@@ -115,6 +116,8 @@ export type RunEmbeddedPiAgentParams = {
   imageOrder?: PromptImageOrderEntry[];
   /** Optional client-provided tools (OpenResponses hosted tools). */
   clientTools?: ClientToolDefinition[];
+  /** Active persisted session plan injected into prompt and tool guardrails. */
+  activePlan?: SessionActivePlan;
   /** Disable built-in tools for this run (LLM-only mode). */
   disableTools?: boolean;
   provider?: string;

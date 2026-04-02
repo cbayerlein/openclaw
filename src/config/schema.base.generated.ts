@@ -25610,6 +25610,41 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
       help: 'Optional allowlist of model ids (e.g. "gpt-5.4" or "openai/gpt-5.4").',
       tags: ["access", "tools"],
     },
+    "tools.planning": {
+      label: "Planning Guardrails",
+      help: "Planning guardrails for agent runs, including plan persistence and whether substantial tool work is blocked until a structured plan exists.",
+      tags: ["tools"],
+    },
+    "tools.planning.mode": {
+      label: "Planning Guardrail Mode",
+      help: "Planning guardrail mode for agent runs. Use `enforced` to block substantial tool work until `update_plan` is called, `advisory` to only emit diagnostics, or `off` to disable the feature.",
+      tags: ["tools"],
+    },
+    "tools.planning.persistSessionPlan": {
+      label: "Persist Active Session Plan",
+      help: "Persist the active structured plan on the session entry so later turns in the same session can continue it (default: true).",
+      tags: ["storage", "tools"],
+    },
+    "tools.planning.requirement": {
+      label: "Planning Requirement",
+      help: "Planning strictness profile. `almost_always` expects a plan for nearly all non-trivial tool-driven work and allows only clearly trivial runs to skip planning.",
+      tags: ["tools"],
+    },
+    "tools.editPreference": {
+      label: "Edit Preference Guardrails",
+      help: "Structured edit-preference guardrails for file mutations. Use this to prefer `apply_patch` and block obvious shell or full-file rewrite bypasses when desired.",
+      tags: ["tools"],
+    },
+    "tools.editPreference.mode": {
+      label: "Edit Preference Mode",
+      help: "Edit-preference guardrail mode. Use `enforced` to block obvious non-`apply_patch` bypasses, `advisory` to emit diagnostics only, or `off` to disable the guardrail.",
+      tags: ["tools"],
+    },
+    "tools.editPreference.preferredTool": {
+      label: "Preferred Edit Tool",
+      help: "Preferred structured edit primitive for guarded runs. Currently `apply_patch` is the supported value.",
+      tags: ["tools"],
+    },
     "tools.loopDetection.enabled": {
       label: "Tool-loop Detection",
       help: "Enable repetitive tool-call loop detection and backoff safety checks (default: false).",

@@ -496,6 +496,23 @@ const ToolFsSchema = z
   .strict()
   .optional();
 
+const ToolPlanningSchema = z
+  .object({
+    mode: z.enum(["off", "advisory", "enforced"]).optional(),
+    persistSessionPlan: z.boolean().optional(),
+    requirement: z.literal("almost_always").optional(),
+  })
+  .strict()
+  .optional();
+
+const ToolEditPreferenceSchema = z
+  .object({
+    mode: z.enum(["off", "advisory", "enforced"]).optional(),
+    preferredTool: z.literal("apply_patch").optional(),
+  })
+  .strict()
+  .optional();
+
 const ToolLoopDetectionDetectorSchema = z
   .object({
     genericRepeat: z.boolean().optional(),
@@ -619,6 +636,8 @@ const AgentToolsSchema = z
       .optional(),
     exec: AgentToolExecSchema,
     fs: ToolFsSchema,
+    planning: ToolPlanningSchema,
+    editPreference: ToolEditPreferenceSchema,
     loopDetection: ToolLoopDetectionSchema,
     sandbox: z
       .object({
@@ -952,6 +971,8 @@ export const ToolsSchema = z
       .optional(),
     exec: ToolExecSchema,
     fs: ToolFsSchema,
+    planning: ToolPlanningSchema,
+    editPreference: ToolEditPreferenceSchema,
     subagents: z
       .object({
         tools: ToolPolicySchema,
