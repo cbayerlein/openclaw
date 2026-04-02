@@ -8,8 +8,19 @@ import {
   withTempHeartbeatSandbox,
 } from "./heartbeat-runner.test-utils.js";
 
+const { routeRuntimeWarningMock } = vi.hoisted(() => ({
+  routeRuntimeWarningMock: vi.fn(async () => ({
+    suppressUserChat: false,
+    policy: { enabled: true, warningsRoute: true, userChat: "never" },
+  })),
+}));
+
 vi.mock("./outbound/deliver.js", () => ({
   deliverOutboundPayloads: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("./runtime-warnings.js", () => ({
+  routeRuntimeWarning: routeRuntimeWarningMock,
 }));
 
 type SeedSessionInput = {
@@ -46,6 +57,7 @@ async function withHeartbeatFixture(
 
 afterEach(() => {
   vi.restoreAllMocks();
+  routeRuntimeWarningMock.mockClear();
 });
 
 describe("runHeartbeatOnce – heartbeat model override", () => {
@@ -309,5 +321,54 @@ describe("runHeartbeatOnce – heartbeat model override", () => {
         heartbeatModelOverride: "ollama/llama3.2:1b",
       }),
     );
+  });
+
+  it("routes an operational alert when the heartbeat run fails", async () => {
+    await withHeartbeatFixture(async ({ tmpDir, storePath, replySpy, seedSession }) => {
+      const cfg: OpenClawConfig = {
+        agents: {
+          defaults: {
+            workspace: tmpDir,
+            heartbeat: {
+              every: "5m",
+              target: "whatsapp",
+            },
+          },
+        },
+        channels: { whatsapp: { allowFrom: ["*"] } },
+        session: { store: storePath },
+      };
+      const sessionKey = resolveMainSessionKey(cfg);
+      await seedSession(sessionKey, { lastChannel: "whatsapp", lastTo: "+1555" });
+
+      replySpy.mockRejectedValueOnce(new Error("heartbeat boom"));
+
+      const result = await runHeartbeatOnce({
+        cfg,
+        deps: {
+          getReplyFromConfig: replySpy,
+          getQueueSize: () => 0,
+          nowMs: () => 0,
+        },
+      });
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          status: "failed",
+          reason: "heartbeat boom",
+        }),
+      );
+      expect(routeRuntimeWarningMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          warning: expect.objectContaining({
+            kind: "heartbeat_failure",
+            source: "heartbeat",
+            severity: "critical",
+            text: "[Heartbeat Failure] heartbeat boom",
+            sessionKey,
+          }),
+        }),
+      );
+    });
   });
 });

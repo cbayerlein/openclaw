@@ -1,3 +1,4 @@
+import type { OpenClawConfig } from "../../config/config.js";
 import type { CronConfig } from "../../config/types.cron.js";
 import type { HeartbeatRunResult, HeartbeatWakeRequest } from "../../infra/heartbeat-wake.js";
 import type {
@@ -46,6 +47,7 @@ export type Logger = {
 export type CronServiceDeps = {
   nowMs?: () => number;
   log: Logger;
+  config?: OpenClawConfig;
   storePath: string;
   cronEnabled: boolean;
   /** CronConfig for session retention settings. */

@@ -5,6 +5,7 @@ import {
   HEARTBEAT_SKIP_CRON_IN_PROGRESS,
   isRetryableHeartbeatBusySkipReason,
 } from "../../infra/heartbeat-wake.js";
+import { routeRuntimeWarning } from "../../infra/runtime-warnings.js";
 import { DEFAULT_AGENT_ID } from "../../routing/session-key.js";
 import { normalizeOptionalLowercaseString } from "../../shared/string-coerce.js";
 import {
@@ -77,6 +78,30 @@ type ResolvedFailureAlert = {
   accountId?: string;
   includeSkipped: boolean;
 };
+
+function emitCronRuntimeWarning(
+  state: CronServiceState,
+  params: {
+    text: string;
+    fingerprint: string;
+    jobId?: string;
+  },
+) {
+  if (!state.deps.config) {
+    return;
+  }
+  void routeRuntimeWarning({
+    cfg: state.deps.config,
+    warning: {
+      kind: "cron_runtime_failure",
+      source: "cron",
+      severity: "warn",
+      text: params.text,
+      fingerprint: params.fingerprint,
+      jobId: params.jobId,
+    },
+  });
+}
 
 type TimedCronRunOutcome = CronRunOutcome &
   CronRunTelemetry & {
@@ -461,6 +486,11 @@ function emitFailureAlert(
           { jobId: params.job.id, err: String(err) },
           "cron: failure alert delivery failed",
         );
+        emitCronRuntimeWarning(state, {
+          text: `Cron failure alert delivery failed for job ${params.job.id}: ${String(err)}`,
+          fingerprint: ["cron_runtime_failure", "failure_alert_delivery", params.job.id].join("|"),
+          jobId: params.job.id,
+        });
       });
     return;
   }
@@ -817,6 +847,10 @@ export function armTimer(state: CronServiceState) {
   state.timer = setTimeout(() => {
     void onTimer(state).catch((err) => {
       state.deps.log.error({ err: String(err) }, "cron: timer tick failed");
+      emitCronRuntimeWarning(state, {
+        text: `Cron timer tick failed: ${String(err)}`,
+        fingerprint: "cron_runtime_failure|timer_tick",
+      });
     });
   }, clampedDelay);
   state.deps.log.debug(
@@ -832,6 +866,10 @@ function armRunningRecheckTimer(state: CronServiceState) {
   state.timer = setTimeout(() => {
     void onTimer(state).catch((err) => {
       state.deps.log.error({ err: String(err) }, "cron: timer tick failed");
+      emitCronRuntimeWarning(state, {
+        text: `Cron timer tick failed: ${String(err)}`,
+        fingerprint: "cron_runtime_failure|timer_tick",
+      });
     });
   }, MAX_TIMER_DELAY_MS);
 }
@@ -1002,6 +1040,10 @@ export async function onTimer(state: CronServiceState) {
           });
         } catch (err) {
           state.deps.log.warn({ err: String(err), storePath }, "cron: session reaper sweep failed");
+          emitCronRuntimeWarning(state, {
+            text: `Cron session reaper sweep failed for ${storePath}: ${String(err)}`,
+            fingerprint: ["cron_runtime_failure", "session_reaper_sweep", storePath].join("|"),
+          });
         }
       }
     }

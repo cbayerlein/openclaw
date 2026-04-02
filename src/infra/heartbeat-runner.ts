@@ -140,6 +140,7 @@ import {
   resolveSystemEventDeliveryContext,
   type SystemEvent,
 } from "./system-events.js";
+import { routeRuntimeWarning } from "./runtime-warnings.js";
 
 export type HeartbeatDeps = OutboundSendDeps &
   ChannelHeartbeatDeps & {
@@ -1912,6 +1913,26 @@ export async function runHeartbeatOnce(opts: {
       indicatorType: visibility.useIndicator ? resolveIndicatorType("failed") : undefined,
     });
     log.error(`heartbeat failed: ${reason}`, { error: reason });
+    if (cfg) {
+      await routeRuntimeWarning({
+        cfg,
+        deps: opts.deps,
+        warning: {
+          kind: "heartbeat_failure",
+          source: "heartbeat",
+          severity: "critical",
+          text: `[Heartbeat Failure] ${reason}`,
+          fingerprint: [
+            "heartbeat_failure",
+            agentId,
+            delivery.channel !== "none" ? delivery.channel : "none",
+            reason.trim().toLowerCase(),
+          ].join("|"),
+          agentId,
+          sessionKey,
+        },
+      });
+    }
     return { status: "failed", reason };
   } finally {
     heartbeatTyping?.onCleanup?.();

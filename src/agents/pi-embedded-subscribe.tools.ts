@@ -147,6 +147,22 @@ export function sanitizeToolArgs(args: unknown): unknown {
   return redactStringsDeep(args);
 }
 
+function extractWarningField(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const warning = readErrorCandidate(record.warning);
+  if (warning) {
+    return warning;
+  }
+  const detailsWarning =
+    record.details && typeof record.details === "object" && !Array.isArray(record.details)
+      ? readErrorCandidate((record.details as Record<string, unknown>).warning)
+      : undefined;
+  return detailsWarning;
+}
+
 export function sanitizeToolResult(result: unknown): unknown {
   if (typeof result === "string") {
     return redactToolPayloadText(result);
@@ -469,7 +485,7 @@ export function isToolResultError(result: unknown): boolean {
   if (!normalized) {
     return false;
   }
-  return normalized === "error" || normalized === "timeout";
+  return normalized === "error" || normalized === "timeout" || normalized === "failed";
 }
 
 export function isToolResultTimedOut(result: unknown): boolean {
@@ -521,6 +537,35 @@ export function extractToolErrorMessage(result: unknown): string | undefined {
     return fromRootStatus;
   }
   return text ? normalizeToolErrorText(text) : undefined;
+}
+
+export function extractToolWarningMessage(result: unknown): string | undefined {
+  if (!result || typeof result !== "object") {
+    return undefined;
+  }
+  const record = result as Record<string, unknown>;
+  const fromDetails = extractWarningField(record.details);
+  if (fromDetails) {
+    return fromDetails;
+  }
+  const fromRoot = extractWarningField(record);
+  if (fromRoot) {
+    return fromRoot;
+  }
+  const text = extractToolResultText(result);
+  if (!text) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    const fromJson = extractWarningField(parsed);
+    if (fromJson) {
+      return fromJson;
+    }
+  } catch {
+    // Fall through when tool output is plain text.
+  }
+  return undefined;
 }
 
 function resolveMessageToolTarget(args: Record<string, unknown>): string | undefined {

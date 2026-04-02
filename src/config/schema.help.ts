@@ -1739,6 +1739,28 @@ export const FIELD_HELP: Record<string, string> = {
     "Map provider -> channel id -> model override (values are provider/model or aliases).",
   "messages.suppressToolErrors":
     "When true, suppress ⚠️ tool-error warnings from being shown to the user. The agent already sees errors in context and can retry. Default: false.",
+  "messages.operationalAlerts":
+    "Route selected operational warnings to a dedicated operator destination. Defaults to disabled until configured.",
+  "messages.operationalAlerts.enabled":
+    "Enable operational alert routing for tool, heartbeat, and cron warnings.",
+  "messages.operationalAlerts.target":
+    "Deliverable channel id for the operator alert destination, for example telegram or discord.",
+  "messages.operationalAlerts.to":
+    "Destination id for the operator alert route, such as a Telegram group id or channel id.",
+  "messages.operationalAlerts.accountId":
+    "Optional account id for multi-account channels when delivering operational alerts.",
+  "messages.operationalAlerts.sources":
+    'Which alert sources should be routed ("tool", "agent", "provider", "heartbeat", "cron", "delivery", "channel", "guardrail"). Defaults to all.',
+  "messages.operationalAlerts.severities":
+    'Which severities should be routed ("warn", "critical"). Defaults to both.',
+  "messages.operationalAlerts.kinds":
+    "Restrict routing to specific first-class warning kinds. Defaults to all built-in warning kinds.",
+  "messages.operationalAlerts.kindPolicies":
+    "Per-warning-kind policy overrides for enablement, user-chat visibility, warnings-route delivery, and severity filtering.",
+  "messages.operationalAlerts.fallback":
+    'What to do when operator-route delivery fails: "none", "on-route-failure" (default), or "always-user-chat".',
+  "messages.operationalAlerts.dedupeWindowMs":
+    "Deduplicate identical operator alerts for this many milliseconds. Default: 600000 (10 minutes).",
   "messages.ackReaction": "Emoji reaction used to acknowledge inbound messages (empty disables).",
   "messages.ackReactionScope":
     'When to send ack reactions ("group-mentions", "group-all", "direct", "all", "off", "none"). "off"/"none" disables ack reactions entirely.',

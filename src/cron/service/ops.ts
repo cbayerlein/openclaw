@@ -1,3 +1,4 @@
+import { routeRuntimeWarning } from "../../infra/runtime-warnings.js";
 import { enqueueCommandInLane } from "../../process/command-queue.js";
 import { CommandLane } from "../../process/lanes.js";
 import { normalizeLowercaseStringOrEmpty } from "../../shared/string-coerce.js";
@@ -828,6 +829,19 @@ export async function enqueueRun(state: CronServiceState, id: string, mode?: "du
       { jobId: id, runId, err: String(err) },
       "cron: queued manual run background execution failed",
     );
+    if (state.deps.config) {
+      void routeRuntimeWarning({
+        cfg: state.deps.config,
+        warning: {
+          kind: "cron_runtime_failure",
+          source: "cron",
+          severity: "warn",
+          text: `Cron queued manual run background execution failed for job ${id}: ${String(err)}`,
+          fingerprint: ["cron_runtime_failure", "manual_run_background", id].join("|"),
+          jobId: id,
+        },
+      });
+    }
   });
   return { ok: true, enqueued: true, runId } as const;
 }

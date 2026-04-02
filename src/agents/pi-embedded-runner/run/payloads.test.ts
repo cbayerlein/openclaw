@@ -5,6 +5,7 @@ import {
   expectSinglePayloadText,
   expectSingleToolErrorPayload,
 } from "./payloads.test-helpers.js";
+import { resolveToolErrorWarning } from "./payloads.js";
 
 describe("buildEmbeddedRunPayloads tool-error warnings", () => {
   function expectNoPayloads(params: Parameters<typeof buildPayloads>[0]) {
@@ -140,6 +141,23 @@ describe("buildEmbeddedRunPayloads tool-error warnings", () => {
     });
   });
 
+  it("still emits a runtime warning for suppressed exec tool errors", () => {
+    const warning = resolveToolErrorWarning({
+      lastToolError: { toolName: "exec", error: "command failed" },
+      hasUserFacingReply: false,
+      suppressToolErrors: false,
+      sessionKey: "agent:main:main",
+      verboseLevel: "off",
+    });
+
+    expect(warning.showWarning).toBe(false);
+    expect(warning.runtimeWarning).toMatchObject({
+      kind: "tool_exec_failure",
+      source: "tool",
+      severity: "critical",
+    });
+  });
+
   it("shows exec tool errors when verbose mode is on", () => {
     const payloads = buildPayloads({
       lastToolError: { toolName: "exec", error: "command failed" },
@@ -207,6 +225,23 @@ describe("buildEmbeddedRunPayloads tool-error warnings", () => {
     expectNoPayloads({
       lastToolError,
       verboseLevel: "on",
+    });
+  });
+
+  it("emits a session-delivery runtime warning for sessions_send failures", () => {
+    const warning = resolveToolErrorWarning({
+      lastToolError: { toolName: "sessions_send", error: "delivery timeout" },
+      hasUserFacingReply: false,
+      suppressToolErrors: false,
+      sessionKey: "agent:main:main",
+      verboseLevel: "off",
+    });
+
+    expect(warning.showWarning).toBe(false);
+    expect(warning.runtimeWarning).toMatchObject({
+      kind: "session_delivery_failure",
+      source: "tool",
+      severity: "critical",
     });
   });
 

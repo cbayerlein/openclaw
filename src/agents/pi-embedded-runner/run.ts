@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
+import { hasOutboundReplyContent } from "openclaw/plugin-sdk/reply-payload";
 import type { ReplyPayload } from "../../auto-reply/reply-payload.js";
 import type { ThinkLevel } from "../../auto-reply/thinking.js";
 import { SILENT_REPLY_TOKEN } from "../../auto-reply/tokens.js";
@@ -9,6 +10,7 @@ import { emitAgentEvent, emitAgentPlanEvent } from "../../infra/agent-events.js"
 import { computeBackoff, sleepWithAbort } from "../../infra/backoff.js";
 import { freezeDiagnosticTraceContext } from "../../infra/diagnostic-trace-context.js";
 import { formatErrorMessage } from "../../infra/errors.js";
+import { routeRuntimeWarning } from "../../infra/runtime-warnings.js";
 import { enqueueSystemEvent } from "../../infra/system-events.js";
 import { buildAgentHookContextChannelFields } from "../../plugins/hook-agent-context.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
@@ -151,7 +153,7 @@ import {
   shouldTreatEmptyAssistantReplyAsSilent,
 } from "./run/incomplete-turn.js";
 import type { RunEmbeddedPiAgentParams } from "./run/params.js";
-import { buildEmbeddedRunPayloads } from "./run/payloads.js";
+import { buildEmbeddedRunPayloads, resolveToolErrorWarning } from "./run/payloads.js";
 import { handleRetryLimitExhaustion } from "./run/retry-limit.js";
 import {
   buildBeforeModelResolveAttachments,
@@ -2230,7 +2232,7 @@ export async function runEmbeddedPiAgent(
           const finalAssistantVisibleText = resolveFinalAssistantVisibleText(sessionLastAssistant);
           const finalAssistantRawText = resolveFinalAssistantRawText(sessionLastAssistant);
 
-          const payloads = buildEmbeddedRunPayloads({
+          let payloads = buildEmbeddedRunPayloads({
             assistantTexts: attempt.assistantTexts,
             toolMetas: attempt.toolMetas,
             lastAssistant: attempt.lastAssistant,
@@ -2274,6 +2276,66 @@ export async function runEmbeddedPiAgent(
             trigger: params.trigger,
             lastToolError: attempt.lastToolError,
           });
+
+          const warningSessionKey = params.sessionKey ?? params.sessionId;
+
+          if (attempt.lastToolError && params.config) {
+            const toolWarning = resolveToolErrorWarning({
+              lastToolError: attempt.lastToolError,
+              hasUserFacingReply: payloads.some(
+                (payload) => !payload.isError && hasOutboundReplyContent(payload),
+              ),
+              suppressToolErrors: Boolean(params.config.messages?.suppressToolErrors),
+              suppressToolErrorWarnings: params.suppressToolErrorWarnings,
+              verboseLevel: params.verboseLevel,
+              useMarkdown: resolvedToolResultFormat === "markdown",
+            });
+            if (toolWarning.runtimeWarning) {
+              const routeResult = await routeRuntimeWarning({
+                cfg: params.config,
+                warning: {
+                  ...toolWarning.runtimeWarning,
+                  agentId: params.agentId,
+                  sessionKey: warningSessionKey,
+                },
+              });
+              if (routeResult.suppressUserChat && toolWarning.warningText) {
+                payloads = payloads.filter((payload) => payload.text !== toolWarning.warningText);
+              }
+            }
+          }
+
+          if (params.config && attempt.lastAssistant?.stopReason === "error") {
+            const providerErrorPayload = payloads.find(
+              (payload) =>
+                payload.isError === true &&
+                typeof payload.text === "string" &&
+                payload.text.trim().length > 0,
+            );
+            if (providerErrorPayload?.text) {
+              const routeResult = await routeRuntimeWarning({
+                cfg: params.config,
+                warning: {
+                  kind: "provider_failure",
+                  source: "provider",
+                  severity: "critical",
+                  text: providerErrorPayload.text,
+                  fingerprint: [
+                    "provider_failure",
+                    activeErrorContext.provider?.trim().toLowerCase() ?? "",
+                    activeErrorContext.model?.trim().toLowerCase() ?? "",
+                    attempt.lastAssistant.errorMessage?.trim().toLowerCase() ??
+                      providerErrorPayload.text,
+                  ].join("|"),
+                  agentId: params.agentId,
+                  sessionKey: warningSessionKey,
+                },
+              });
+              if (routeResult.suppressUserChat) {
+                payloads = payloads.filter((payload) => payload.text !== providerErrorPayload.text);
+              }
+            }
+          }
 
           // Timeout aborts can leave the run without payloads or with only a
           // partial assistant fragment. Emit an explicit timeout error instead.
@@ -2674,6 +2736,51 @@ export async function runEmbeddedPiAgent(
                 profileId: lastProfileId,
                 reason: resolveRunAuthProfileFailureReason(assistantFailoverReason),
               });
+            }
+
+            if (params.config) {
+              const hadMutatingTools = attempt.toolMetas.some((t) =>
+                isLikelyMutatingToolName(t.toolName),
+              );
+              const routeResult = await routeRuntimeWarning({
+                cfg: params.config,
+                warning: {
+                  kind: "agent_run_failure",
+                  source: "agent",
+                  severity: "critical",
+                  text: incompleteTurnText,
+                  fingerprint: [
+                    "agent_run_failure",
+                    incompleteStopReason ?? "",
+                    hadMutatingTools ? "mutating" : "readonly",
+                    attempt.lastAssistant?.errorMessage?.trim().toLowerCase() ?? "",
+                  ].join("|"),
+                  agentId: params.agentId,
+                  sessionKey: warningSessionKey,
+                },
+              });
+              if (routeResult.suppressUserChat) {
+                return {
+                  payloads: [],
+                  meta: {
+                    durationMs: Date.now() - started,
+                    agentMeta,
+                    aborted,
+                    systemPromptReport: attempt.systemPromptReport,
+                    finalPromptText: attempt.finalPromptText,
+                    finalAssistantVisibleText,
+                    finalAssistantRawText,
+                    replayInvalid,
+                    livenessState,
+                  },
+                  didSendViaMessagingTool: attempt.didSendViaMessagingTool,
+                  didSendDeterministicApprovalPrompt: attempt.didSendDeterministicApprovalPrompt,
+                  messagingToolSentTexts: attempt.messagingToolSentTexts,
+                  messagingToolSentMediaUrls: attempt.messagingToolSentMediaUrls,
+                  messagingToolSentTargets: attempt.messagingToolSentTargets,
+                  successfulCronAdds: attempt.successfulCronAdds,
+                };
+              }
             }
 
             return {

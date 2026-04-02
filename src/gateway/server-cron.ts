@@ -229,6 +229,7 @@ export function buildGatewayCronService(params: {
   };
 
   const cron = new CronService({
+    config: params.cfg,
     storePath,
     cronEnabled,
     cronConfig: params.cfg.cron,

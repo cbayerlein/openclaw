@@ -15,6 +15,7 @@ import {
   normalizeOptionalLowercaseString,
   normalizeOptionalString,
 } from "../../../shared/string-coerce.js";
+import type { RuntimeWarning } from "../../../infra/runtime-warnings.js";
 import {
   BILLING_ERROR_USER_MESSAGE,
   formatAssistantErrorText,
@@ -36,6 +37,12 @@ type ToolMetaEntry = { toolName: string; meta?: string };
 type ToolErrorWarningPolicy = {
   showWarning: boolean;
   includeDetails: boolean;
+};
+
+export type ToolErrorWarningResolution = {
+  showWarning: boolean;
+  warningText?: string;
+  runtimeWarning?: RuntimeWarning;
 };
 
 const RECOVERABLE_TOOL_ERROR_KEYWORDS = [
@@ -168,6 +175,79 @@ function resolveToolErrorWarningPolicy(params: {
     showWarning: !params.hasUserFacingReply && !isRecoverableToolError(params.lastToolError.error),
     includeDetails,
   };
+}
+
+export function resolveToolErrorWarning(params: {
+  lastToolError?: LastToolError;
+  hasUserFacingReply: boolean;
+  suppressToolErrors: boolean;
+  suppressToolErrorWarnings?: boolean;
+  isCronTrigger?: boolean;
+  sessionKey: string;
+  verboseLevel?: VerboseLevel;
+  suppressUserFacingWarning?: boolean;
+  useMarkdown?: boolean;
+}): ToolErrorWarningResolution {
+  if (!params.lastToolError) {
+    return { showWarning: false };
+  }
+  const normalizedToolName = params.lastToolError.toolName.trim().toLowerCase();
+  const isMutatingToolError =
+    params.lastToolError.mutatingAction ?? isLikelyMutatingToolName(params.lastToolError.toolName);
+  const warningPolicy = resolveToolErrorWarningPolicy({
+    lastToolError: params.lastToolError,
+    hasUserFacingReply: params.hasUserFacingReply,
+    suppressToolErrors: params.suppressToolErrors,
+    suppressToolErrorWarnings: params.suppressToolErrorWarnings,
+    isCronTrigger: params.isCronTrigger,
+    sessionKey: params.sessionKey,
+    verboseLevel: params.verboseLevel,
+  });
+  const toolSummary = formatToolAggregate(
+    params.lastToolError.toolName,
+    params.lastToolError.meta ? [params.lastToolError.meta] : undefined,
+    { markdown: params.useMarkdown },
+  );
+  const errorSuffix =
+    warningPolicy.includeDetails && params.lastToolError.error
+      ? `: ${params.lastToolError.error}`
+      : "";
+  const warningText = `⚠️ ${toolSummary} failed${errorSuffix}`;
+  const kind = (() => {
+    if (normalizedToolName === "exec" || normalizedToolName === "bash") {
+      return "tool_exec_failure" as const;
+    }
+    if (normalizedToolName === "sessions_send") {
+      return "session_delivery_failure" as const;
+    }
+    if (!isMutatingToolError && isRecoverableToolError(params.lastToolError.error)) {
+      return "tool_recoverable_warning" as const;
+    }
+    return "tool_failure" as const;
+  })();
+  const runtimeWarning =
+    params.suppressToolErrorWarnings === true
+      ? undefined
+      : {
+          kind,
+          source: "tool" as const,
+          severity: kind === "tool_recoverable_warning" ? ("warn" as const) : ("critical" as const),
+          text: warningText,
+          fingerprint: [
+            kind,
+            params.lastToolError.actionFingerprint ??
+              params.lastToolError.toolName.trim().toLowerCase(),
+            params.lastToolError.error?.trim().toLowerCase() ?? "",
+          ].join("|"),
+          toolName: params.lastToolError.toolName,
+        };
+  if (!warningPolicy.showWarning) {
+    return { showWarning: false, runtimeWarning };
+  }
+  if (params.suppressUserFacingWarning) {
+    return { showWarning: false, warningText, runtimeWarning };
+  }
+  return { showWarning: true, warningText, runtimeWarning };
 }
 
 export function buildEmbeddedRunPayloads(params: {
@@ -403,7 +483,7 @@ export function buildEmbeddedRunPayloads(params: {
   }
 
   if (params.lastToolError) {
-    const warningPolicy = resolveToolErrorWarningPolicy({
+    const warning = resolveToolErrorWarning({
       lastToolError: params.lastToolError,
       hasUserFacingReply: hasUserFacingAssistantReply,
       hasUserFacingErrorReply,
@@ -413,21 +493,13 @@ export function buildEmbeddedRunPayloads(params: {
       isCronTrigger: params.isCronTrigger,
       sessionKey: params.sessionKey,
       verboseLevel: params.verboseLevel,
+      useMarkdown,
     });
 
     // Surface mutating failures unless the assistant explicitly acknowledged the failed action.
     // Otherwise, keep the previous behavior and only surface non-recoverable failures when no reply exists.
-    if (warningPolicy.showWarning) {
-      const toolSummary = formatToolAggregate(
-        params.lastToolError.toolName,
-        params.lastToolError.meta ? [params.lastToolError.meta] : undefined,
-        { markdown: useMarkdown },
-      );
-      const errorSuffix =
-        warningPolicy.includeDetails && params.lastToolError.error
-          ? `: ${params.lastToolError.error}`
-          : "";
-      const warningText = `⚠️ ${toolSummary} failed${errorSuffix}`;
+    if (warning.showWarning && warning.warningText) {
+      const warningText = warning.warningText;
       const normalizedWarning = normalizeTextForComparison(warningText);
       const duplicateWarning = normalizedWarning
         ? replyItems.some((item) => {

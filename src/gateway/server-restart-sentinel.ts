@@ -32,6 +32,7 @@ import {
   type SessionDeliveryRecoveryLogger,
   type SessionDeliveryRoute,
 } from "../infra/session-delivery-queue.js";
+import { routeRuntimeWarning } from "../infra/runtime-warnings.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { stringifyRouteThreadId } from "../plugin-sdk/channel-route.js";
@@ -144,6 +145,24 @@ async function deliverRestartSentinelNotice(params: {
         sessionKey: params.sessionKey,
         attempt,
         maxAttempts: OUTBOUND_MAX_ATTEMPTS,
+      });
+      await routeRuntimeWarning({
+        cfg: params.cfg,
+        deps: params.deps,
+        warning: {
+          kind: "reply_delivery_failure",
+          source: "delivery",
+          severity: "warn",
+          text: `${params.summary}: outbound delivery failed: ${String(err)}`,
+          fingerprint: [
+            "reply_delivery_failure",
+            params.sessionKey,
+            params.channel,
+            params.to,
+            String(err),
+          ].join("|"),
+          sessionKey: params.sessionKey,
+        },
       });
       if (!retrying) {
         if (queueId) {

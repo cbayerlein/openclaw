@@ -33,6 +33,7 @@ function createTestContext(): {
       onBlockReplyFlush,
       onAgentEvent,
       onToolResult: undefined,
+      config: {} as never,
     },
     flushBlockReplyBuffer: vi.fn(),
     hookRunner: undefined,

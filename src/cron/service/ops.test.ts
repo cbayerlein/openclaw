@@ -10,6 +10,17 @@ import { run, start, stop, update } from "./ops.js";
 import { createCronServiceState } from "./state.js";
 import { runMissedJobs } from "./timer.js";
 
+const { routeRuntimeWarningMock } = vi.hoisted(() => ({
+  routeRuntimeWarningMock: vi.fn(async () => ({
+    suppressUserChat: false,
+    policy: { enabled: true, warningsRoute: true, userChat: "never" as const },
+  })),
+}));
+
+vi.mock("../../infra/runtime-warnings.js", () => ({
+  routeRuntimeWarning: routeRuntimeWarningMock,
+}));
+
 const { logger, makeStorePath } = setupCronServiceSuite({
   prefix: "cron-service-ops-seam",
 });
@@ -365,6 +376,47 @@ describe("cron service ops seam coverage", () => {
       process.env.OPENCLAW_STATE_DIR = originalStateDir;
     }
     resetTaskRegistryForTests();
+  });
+
+  it("routes queued manual run background failures as cron runtime warnings", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-03-23T12:00:00.000Z");
+
+    await writeCronStoreSnapshot({
+      storePath,
+      jobs: [createInterruptedMainJob(now)],
+    });
+
+    const state = createCronServiceState({
+      storePath,
+      cronEnabled: true,
+      config: {} as never,
+      log: logger,
+      nowMs: () => now,
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeatNow: vi.fn(),
+      runIsolatedAgentJob: vi.fn(async () => {
+        throw new Error("background exploded");
+      }),
+    });
+
+    routeRuntimeWarningMock.mockClear();
+    const result = await run(state, "startup-interrupted", "force");
+
+    expect(result.ok).toBe(true);
+    if ("enqueued" in result) {
+      await vi.waitFor(() => {
+        expect(routeRuntimeWarningMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            warning: expect.objectContaining({
+              kind: "cron_runtime_failure",
+              source: "cron",
+              jobId: "startup-interrupted",
+            }),
+          }),
+        );
+      });
+    }
   });
 
   it("non-schedule edit preserves nextRunAtMs (#63499)", async () => {

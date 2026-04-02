@@ -74,6 +74,7 @@ import {
   materializeRuntimeConfig,
 } from "./materialize.js";
 import { applyMergePatch } from "./merge-patch.js";
+import { applyOperationalAlertsEnvOverrides } from "./operational-alerts-runtime.js";
 import { resolveConfigPath, resolveIncludeRoots, resolveStateDir } from "./paths.js";
 import {
   extractShippedPluginInstallConfigRecords,
@@ -1620,7 +1621,66 @@ export function createConfigIO(
           legacyIssues: [],
         }),
       });
-      return finalizeLoadedRuntimeConfig(cfg);
+
+      const duplicates = findDuplicateAgentDirs(cfg, {
+        env: deps.env,
+        homedir: deps.homedir,
+      });
+      if (duplicates.length > 0) {
+        throw new DuplicateAgentDirError(duplicates);
+      }
+
+      applyConfigEnvVars(cfg, deps.env);
+
+      const enabled = shouldEnableShellEnvFallback(deps.env) || cfg.env?.shellEnv?.enabled === true;
+      if (enabled && !shouldDeferShellEnvFallback(deps.env)) {
+        loadShellEnvFallback({
+          enabled: true,
+          env: deps.env,
+          expectedKeys: SHELL_ENV_EXPECTED_KEYS,
+          logger: deps.logger,
+          timeoutMs: cfg.env?.shellEnv?.timeoutMs ?? resolveShellEnvFallbackTimeoutMs(deps.env),
+        });
+      }
+
+      const pendingSecret = AUTO_OWNER_DISPLAY_SECRET_BY_PATH.get(configPath);
+      const ownerDisplaySecretResolution = ensureOwnerDisplaySecret(
+        cfg,
+        () => pendingSecret ?? crypto.randomBytes(32).toString("hex"),
+      );
+      const cfgWithOwnerDisplaySecret = ownerDisplaySecretResolution.config;
+      if (ownerDisplaySecretResolution.generatedSecret) {
+        AUTO_OWNER_DISPLAY_SECRET_BY_PATH.set(
+          configPath,
+          ownerDisplaySecretResolution.generatedSecret,
+        );
+        if (!AUTO_OWNER_DISPLAY_SECRET_PERSIST_IN_FLIGHT.has(configPath)) {
+          AUTO_OWNER_DISPLAY_SECRET_PERSIST_IN_FLIGHT.add(configPath);
+          void writeConfigFile(cfgWithOwnerDisplaySecret, { expectedConfigPath: configPath })
+            .then(() => {
+              AUTO_OWNER_DISPLAY_SECRET_BY_PATH.delete(configPath);
+              AUTO_OWNER_DISPLAY_SECRET_PERSIST_WARNED.delete(configPath);
+            })
+            .catch((err) => {
+              if (!AUTO_OWNER_DISPLAY_SECRET_PERSIST_WARNED.has(configPath)) {
+                AUTO_OWNER_DISPLAY_SECRET_PERSIST_WARNED.add(configPath);
+                deps.logger.warn(
+                  `Failed to persist auto-generated commands.ownerDisplaySecret at ${configPath}: ${String(err)}`,
+                );
+              }
+            })
+            .finally(() => {
+              AUTO_OWNER_DISPLAY_SECRET_PERSIST_IN_FLIGHT.delete(configPath);
+            });
+        }
+      } else {
+        AUTO_OWNER_DISPLAY_SECRET_BY_PATH.delete(configPath);
+        AUTO_OWNER_DISPLAY_SECRET_PERSIST_WARNED.delete(configPath);
+      }
+
+      return applyConfigOverrides(
+        applyOperationalAlertsEnvOverrides(cfgWithOwnerDisplaySecret, deps.env),
+      );
     } catch (err) {
       if (err instanceof DuplicateAgentDirError) {
         deps.logger.error(err.message);

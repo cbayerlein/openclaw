@@ -1,4 +1,4 @@
-import type { OpenClawConfig } from "../config/types.openclaw.js";
+import type { OpenClawConfig } from "../config/config.js";
 import type { ToolLoopDetectionConfig } from "../config/types.tools.js";
 import {
   diagnosticErrorCategory,
@@ -14,6 +14,7 @@ import {
   type DiagnosticTraceContext,
 } from "../infra/diagnostic-trace-context.js";
 import { emitAgentEvent } from "../infra/agent-events.js";
+import { routeRuntimeWarning } from "../infra/runtime-warnings.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
 import type { SessionState } from "../logging/diagnostic-session-state.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
@@ -456,6 +457,21 @@ export async function runBeforeToolCallHook(args: {
     if (args.ctx?.sessionKey) {
       enqueueSystemEvent(reason, { sessionKey: args.ctx.sessionKey });
     }
+    if (args.ctx?.config) {
+      await routeRuntimeWarning({
+        cfg: args.ctx.config,
+        warning: {
+          kind: "guardrail_warning",
+          source: "guardrail",
+          severity: "warn",
+          text: reason,
+          fingerprint: ["guardrail_warning", "plan_missing_blocked", toolName].join("|"),
+          agentId: args.ctx.agentId,
+          sessionKey: args.ctx.sessionKey,
+          toolName,
+        },
+      });
+    }
     return { blocked: true, reason };
   }
   if (shouldEmitMissingPlanAdvisory({ toolName, toolParams: params, ctx: args.ctx })) {
@@ -474,6 +490,21 @@ export async function runBeforeToolCallHook(args: {
     }
     if (args.ctx?.sessionKey) {
       enqueueSystemEvent(message, { sessionKey: args.ctx.sessionKey });
+    }
+    if (args.ctx?.config) {
+      await routeRuntimeWarning({
+        cfg: args.ctx.config,
+        warning: {
+          kind: "guardrail_warning",
+          source: "guardrail",
+          severity: "warn",
+          text: message,
+          fingerprint: ["guardrail_warning", "plan_missing_advisory", toolName].join("|"),
+          agentId: args.ctx.agentId,
+          sessionKey: args.ctx.sessionKey,
+          toolName,
+        },
+      });
     }
   }
 
@@ -498,6 +529,21 @@ export async function runBeforeToolCallHook(args: {
     if (args.ctx?.sessionKey) {
       enqueueSystemEvent(editGuardrail.message, { sessionKey: args.ctx.sessionKey });
     }
+    if (args.ctx?.config) {
+      await routeRuntimeWarning({
+        cfg: args.ctx.config,
+        warning: {
+          kind: "guardrail_warning",
+          source: "guardrail",
+          severity: "warn",
+          text: editGuardrail.message,
+          fingerprint: ["guardrail_warning", "edit_preference_blocked", toolName].join("|"),
+          agentId: args.ctx.agentId,
+          sessionKey: args.ctx.sessionKey,
+          toolName,
+        },
+      });
+    }
     return { blocked: true, reason: editGuardrail.message };
   }
   if (editGuardrail.action === "advisory" || editGuardrail.action === "exception") {
@@ -518,6 +564,27 @@ export async function runBeforeToolCallHook(args: {
     }
     if (args.ctx?.sessionKey) {
       enqueueSystemEvent(editGuardrail.message, { sessionKey: args.ctx.sessionKey });
+    }
+    if (args.ctx?.config) {
+      await routeRuntimeWarning({
+        cfg: args.ctx.config,
+        warning: {
+          kind: "guardrail_warning",
+          source: "guardrail",
+          severity: "warn",
+          text: editGuardrail.message,
+          fingerprint: [
+            "guardrail_warning",
+            editGuardrail.action === "exception"
+              ? "edit_preference_exception"
+              : "edit_preference_advisory",
+            toolName,
+          ].join("|"),
+          agentId: args.ctx.agentId,
+          sessionKey: args.ctx.sessionKey,
+          toolName,
+        },
+      });
     }
   }
 

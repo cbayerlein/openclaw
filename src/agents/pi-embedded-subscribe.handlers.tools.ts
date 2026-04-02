@@ -17,6 +17,12 @@ import {
   emitAgentPatchSummaryEvent,
 } from "../infra/agent-events.js";
 import type { ExecApprovalDecision } from "../infra/exec-approvals.js";
+import {
+  buildExecApprovalPendingReplyPayload,
+  buildExecApprovalUnavailableReplyPayload,
+} from "../infra/exec-approval-reply.js";
+import { routeRuntimeWarning } from "../infra/runtime-warnings.js";
+import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import type { PluginHookAfterToolCallEvent } from "../plugins/types.js";
 import { createLazyImportLoader } from "../shared/lazy-promise.js";
 import { normalizeOptionalLowercaseString, readStringValue } from "../shared/string-coerce.js";
@@ -32,6 +38,7 @@ import type {
 } from "./pi-embedded-subscribe.handlers.types.js";
 import { isPromiseLike } from "./pi-embedded-subscribe.promise.js";
 import {
+  extractToolWarningMessage,
   extractToolResultMediaArtifact,
   extractMessagingToolSend,
   extractToolErrorMessage,
@@ -326,6 +333,24 @@ function collectMessagingMediaUrlsFromToolResult(result: unknown): string[] {
   }
 
   return urls;
+}
+
+function classifyToolWarning(params: { toolName: string; warning: string }): {
+  kind: "channel_warning" | "tool_recoverable_warning";
+  source: "channel" | "tool";
+  channel?: string;
+} {
+  if (/^Reaction unavailable:/i.test(params.warning)) {
+    return {
+      kind: "channel_warning",
+      source: "channel",
+      channel: "telegram",
+    };
+  }
+  return {
+    kind: "tool_recoverable_warning",
+    source: "tool",
+  };
 }
 
 function queuePendingToolMedia(
@@ -829,6 +854,7 @@ export async function handleToolExecutionEnd(
   const result = evt.result;
   const isToolError = isError || isToolResultError(result);
   const sanitizedResult = sanitizeToolResult(result);
+  const warningMessage = !isToolError ? extractToolWarningMessage(sanitizedResult) : undefined;
   const toolStartKey = buildToolStartKey(runId, toolCallId);
   const startData = toolStartData.get(toolStartKey);
   toolStartData.delete(toolStartKey);
@@ -868,6 +894,25 @@ export async function handleToolExecutionEnd(
     ctx.state.replayState = mergeEmbeddedRunReplayState(ctx.state.replayState, {
       replayInvalid: true,
       hadPotentialSideEffects: true,
+    });
+  }
+
+  if (warningMessage && ctx.params.config) {
+    const warningSessionKey = ctx.params.sessionKey ?? ctx.params.sessionId;
+    const classification = classifyToolWarning({ toolName, warning: warningMessage });
+    await routeRuntimeWarning({
+      cfg: ctx.params.config,
+      warning: {
+        kind: classification.kind,
+        source: classification.source,
+        severity: "warn",
+        text: warningMessage,
+        fingerprint: [classification.kind, toolName, warningMessage.trim().toLowerCase()].join("|"),
+        sessionKey: warningSessionKey,
+        agentId: ctx.params.agentId,
+        toolName,
+        ...(classification.channel ? { channel: classification.channel } : {}),
+      },
     });
   }
 

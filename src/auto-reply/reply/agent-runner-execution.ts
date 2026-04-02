@@ -43,6 +43,7 @@ import {
 import { logVerbose } from "../../globals.js";
 import { emitAgentEvent, registerAgentRunContext } from "../../infra/agent-events.js";
 import { formatErrorMessage } from "../../infra/errors.js";
+import { routeRuntimeWarning } from "../../infra/runtime-warnings.js";
 import { CommandLaneClearedError, GatewayDrainingError } from "../../process/command-queue.js";
 import { CommandLane } from "../../process/lanes.js";
 import { defaultRuntime } from "../../runtime.js";
@@ -1817,6 +1818,25 @@ export async function runAgentTurnWithFallback(params: {
                           .catch((err) => {
                             // Keep chain healthy after an error so later tool results still deliver.
                             logVerbose(`tool result delivery failed: ${String(err)}`);
+                            const cfg = params.followupRun.run.config;
+                            if (cfg) {
+                              void routeRuntimeWarning({
+                                cfg,
+                                warning: {
+                                  kind: "reply_delivery_failure",
+                                  source: "delivery",
+                                  severity: "warn",
+                                  text: `Tool result delivery failed: ${String(err)}`,
+                                  fingerprint: [
+                                    "reply_delivery_failure",
+                                    params.followupRun.run.sessionKey ?? "",
+                                    String(err),
+                                  ].join("|"),
+                                  agentId: params.followupRun.run.agentId,
+                                  sessionKey: params.followupRun.run.sessionKey,
+                                },
+                              });
+                            }
                           });
                         const task = toolResultChain.finally(() => {
                           params.pendingToolTasks.delete(task);

@@ -88,6 +88,75 @@ export type StatusReactionsConfig = {
   timing?: StatusReactionsTimingConfig;
 };
 
+export type OperationalAlertSource =
+  | "tool"
+  | "agent"
+  | "provider"
+  | "heartbeat"
+  | "cron"
+  | "delivery"
+  | "channel"
+  | "guardrail";
+
+export type OperationalAlertSeverity = "warn" | "critical";
+
+export type OperationalAlertFallback = "none" | "on-route-failure" | "always-user-chat";
+
+export type RuntimeWarningKind =
+  | "tool_failure"
+  | "tool_exec_failure"
+  | "tool_recoverable_warning"
+  | "session_delivery_failure"
+  | "provider_failure"
+  | "agent_run_failure"
+  | "heartbeat_failure"
+  | "cron_failure"
+  | "cron_runtime_failure"
+  | "reply_delivery_failure"
+  | "channel_warning"
+  | "guardrail_warning";
+
+export type OperationalAlertUserChatPolicy = "default" | "always" | "never";
+
+export type OperationalAlertKindPolicy = {
+  /** Enable routing policy for this warning kind. */
+  enabled?: boolean;
+  /** Whether the warning should still appear in the user chat. */
+  userChat?: OperationalAlertUserChatPolicy;
+  /** Whether the warning should be routed to the dedicated warnings target. */
+  warningsRoute?: boolean;
+  /** Optional severity filter for this warning kind. */
+  severities?: OperationalAlertSeverity[];
+};
+
+export type OperationalAlertsConfig = {
+  /** Enable operational alert routing to a dedicated operator destination. */
+  enabled?: boolean;
+  /** Deliverable channel id for the operator destination. */
+  target?: string;
+  /** Destination id / chat id / recipient for the operator destination. */
+  to?: string;
+  /** Optional account id for multi-account channels. */
+  accountId?: string;
+  /** Which sources should emit into the operator alert route. */
+  sources?: OperationalAlertSource[];
+  /** Which severities should be delivered to the operator alert route. */
+  severities?: OperationalAlertSeverity[];
+  /** Restrict routing to specific runtime warning kinds. */
+  kinds?: RuntimeWarningKind[];
+  /** Per-kind routing policy overrides. */
+  kindPolicies?: Partial<Record<RuntimeWarningKind, OperationalAlertKindPolicy>>;
+  /**
+   * Fallback behavior when operator-route delivery fails.
+   * - none: log only
+   * - on-route-failure: retry once to the originating user/session chat
+   * - always-user-chat: always mirror to the originating user/session chat
+   */
+  fallback?: OperationalAlertFallback;
+  /** Deduplicate identical alerts for the configured window (ms). */
+  dedupeWindowMs?: number;
+};
+
 export type MessagesConfig = {
   /** @deprecated Use `whatsapp.messagePrefix` (WhatsApp-only inbound prefix). */
   messagePrefix?: string;
@@ -133,6 +202,8 @@ export type MessagesConfig = {
   statusReactions?: StatusReactionsConfig;
   /** When true, suppress ⚠️ tool-error warnings from being shown to the user. Default: false. */
   suppressToolErrors?: boolean;
+  /** Route selected operational warnings to a dedicated operator destination. */
+  operationalAlerts?: OperationalAlertsConfig;
   /** Text-to-speech settings for outbound replies. */
   tts?: TtsConfig;
 };
