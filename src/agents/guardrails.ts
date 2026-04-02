@@ -24,7 +24,19 @@ const EXEC_WRITE_PATTERNS = [
   /\bnode\b[\s\S]*?\s-e\s+[\s\S]*(writeFileSync|writeFile\()/i,
 ];
 const NO_PLAN_BLOCK_MESSAGE =
-  "Planning required before substantial work. Call update_plan first with an optional explanation and plan steps using statuses pending, in_progress, or completed.";
+  "Planning required before substantial work. Call update_plan first. Provide 2-5 concrete steps, use exactly one in_progress step, keep the rest pending or completed, then continue with the task.";
+const GENERIC_PLAN_STEP_PATTERNS = [
+  /^do work$/i,
+  /^continue$/i,
+  /^continue working$/i,
+  /^make progress$/i,
+  /^investigate$/i,
+  /^analyze$/i,
+  /^fix issue$/i,
+  /^work on task$/i,
+  /^implement$/i,
+  /^complete task$/i,
+];
 
 export type ActivePlanRef = {
   value?: SessionActivePlan;
@@ -167,6 +179,17 @@ export function getNoPlanBlockMessage(): string {
   return NO_PLAN_BLOCK_MESSAGE;
 }
 
+function isGenericPlanStep(step: string): boolean {
+  const normalized = step.trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+  if (normalized.length < 8) {
+    return true;
+  }
+  return GENERIC_PLAN_STEP_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
 export function validateActivePlanInput(params: {
   explanation?: string;
   plan: Array<{ step?: unknown; status?: unknown }>;
@@ -181,8 +204,19 @@ export function validateActivePlanInput(params: {
   if (steps.length === 0) {
     throw new Error("update_plan requires at least one non-empty step.");
   }
+  if (steps.length < 2) {
+    throw new Error("update_plan requires at least two concrete steps.");
+  }
+  if (steps.length > 5) {
+    throw new Error("update_plan should keep plans concise: use 2-5 steps.");
+  }
   let inProgressCount = 0;
   const normalizedSteps = steps.map((entry) => {
+    if (isGenericPlanStep(entry.step)) {
+      throw new Error(
+        `Plan step "${entry.step}" is too generic. Use a concrete action tied to the task.`,
+      );
+    }
     if (!PLAN_STATUS_VALUES.includes(entry.status as SessionActivePlanStatus)) {
       throw new Error(
         `Invalid plan status "${entry.status}". Use one of: ${PLAN_STATUS_VALUES.join(", ")}.`,
@@ -228,6 +262,18 @@ export function summarizePlan(plan: SessionActivePlan): string {
     `${String(counts.completed)} completed`,
   ];
   return `Plan updated: ${bits.join(", ")}.`;
+}
+
+export function shouldWarnAboutPlanCompletion(plan?: SessionActivePlan): boolean {
+  if (!plan || plan.steps.length === 0) {
+    return false;
+  }
+  const completedCount = plan.steps.filter((step) => step.status === "completed").length;
+  return completedCount === 0;
+}
+
+export function getPlanCompletionAdvisoryMessage(): string {
+  return "Plan advisory: this run ended with no completed plan steps. If the work moved forward, call update_plan and mark the current step accurately before finishing.";
 }
 
 function resolveParamPath(params: unknown): string | undefined {

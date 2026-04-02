@@ -45,7 +45,8 @@ const updatePlanSchema = Type.Object({
     ),
     {
       description: "Ordered plan steps with stable statuses.",
-      minItems: 1,
+      minItems: 2,
+      maxItems: 5,
     },
   ),
 });
