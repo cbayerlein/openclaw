@@ -240,6 +240,20 @@ import {
   WebPushUnsubscribeParamsSchema,
   type WebPushTestParams,
   WebPushTestParamsSchema,
+  type RunEvent,
+  RunEventSchema,
+  type RunSummary,
+  RunSummarySchema,
+  type RunsEventsParams,
+  RunsEventsParamsSchema,
+  type RunsEventsResult,
+  RunsEventsResultSchema,
+  type RunsGetParams,
+  RunsGetParamsSchema,
+  type RunsListParams,
+  RunsListParamsSchema,
+  type RunsListResult,
+  RunsListResultSchema,
   type PresenceEntry,
   PresenceEntrySchema,
   ProtocolSchemas,
@@ -441,6 +455,9 @@ export const validateWebPushUnsubscribeParams = ajv.compile<WebPushUnsubscribePa
   WebPushUnsubscribeParamsSchema,
 );
 export const validateWebPushTestParams = ajv.compile<WebPushTestParams>(WebPushTestParamsSchema);
+export const validateRunsListParams = ajv.compile<RunsListParams>(RunsListParamsSchema);
+export const validateRunsGetParams = ajv.compile<RunsGetParams>(RunsGetParamsSchema);
+export const validateRunsEventsParams = ajv.compile<RunsEventsParams>(RunsEventsParamsSchema);
 export const validateSecretsResolveParams = ajv.compile<SecretsResolveParams>(
   SecretsResolveParamsSchema,
 );
@@ -686,6 +703,13 @@ export {
   WebPushSubscribeParamsSchema,
   WebPushUnsubscribeParamsSchema,
   WebPushTestParamsSchema,
+  RunSummarySchema,
+  RunEventSchema,
+  RunsListParamsSchema,
+  RunsGetParamsSchema,
+  RunsEventsParamsSchema,
+  RunsListResultSchema,
+  RunsEventsResultSchema,
   NodePairRequestParamsSchema,
   NodePairListParamsSchema,
   NodePairApproveParamsSchema,
@@ -949,6 +973,13 @@ export type {
   CronRunParams,
   CronRunsParams,
   CronRunLogEntry,
+  RunSummary,
+  RunEvent,
+  RunsListParams,
+  RunsGetParams,
+  RunsEventsParams,
+  RunsListResult,
+  RunsEventsResult,
   ExecApprovalsGetParams,
   ExecApprovalsSetParams,
   ExecApprovalsSnapshot,

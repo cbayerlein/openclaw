@@ -1,5 +1,6 @@
 import { clearAgentRunContext, onAgentEvent } from "../infra/agent-events.js";
 import { onHeartbeatEvent } from "../infra/heartbeat-events.js";
+import { persistRunObservabilityEvent } from "../infra/run-observability.js";
 import { onSessionLifecycleEvent } from "../sessions/session-lifecycle-events.js";
 import { onSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 import type { ChatAbortControllerEntry } from "./chat-abort.js";
@@ -90,6 +91,20 @@ export function startGatewayEventSubscriptions(params: {
     params.broadcast("heartbeat", evt, { dropIfSlow: true });
   });
 
+  const runObservabilityUnsub = onAgentEvent((evt) => {
+    void import("./server-session-key.js").then(({ resolveSessionKeyForRun }) => {
+      const resolvedSessionKey =
+        typeof evt.sessionKey === "string" && evt.sessionKey.trim()
+          ? evt.sessionKey.trim()
+          : resolveSessionKeyForRun(evt.runId);
+      const enriched =
+        resolvedSessionKey && resolvedSessionKey !== evt.sessionKey
+          ? { ...evt, sessionKey: resolvedSessionKey }
+          : evt;
+      void persistRunObservabilityEvent(enriched);
+    });
+  });
+
   const transcriptUnsub = onSessionTranscriptUpdate((evt) => {
     void getTranscriptUpdateHandler().then((handler) => handler(evt));
   });
@@ -101,6 +116,7 @@ export function startGatewayEventSubscriptions(params: {
   return {
     agentUnsub,
     heartbeatUnsub,
+    runObservabilityUnsub,
     transcriptUnsub,
     lifecycleUnsub,
   };

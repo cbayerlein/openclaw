@@ -184,6 +184,15 @@ import {
 } from "./plugins.js";
 import { PushTestParamsSchema, PushTestResultSchema } from "./push.js";
 import {
+  RunEventSchema,
+  RunSummarySchema,
+  RunsEventsParamsSchema,
+  RunsEventsResultSchema,
+  RunsGetParamsSchema,
+  RunsListParamsSchema,
+  RunsListResultSchema,
+} from "./runs.js";
+import {
   SecretsReloadParamsSchema,
   SecretsResolveAssignmentSchema,
   SecretsResolveParamsSchema,
@@ -272,6 +281,13 @@ export const ProtocolSchemas = {
   NodeInvokeRequestEvent: NodeInvokeRequestEventSchema,
   PushTestParams: PushTestParamsSchema,
   PushTestResult: PushTestResultSchema,
+  RunsListParams: RunsListParamsSchema,
+  RunsGetParams: RunsGetParamsSchema,
+  RunsEventsParams: RunsEventsParamsSchema,
+  RunSummary: RunSummarySchema,
+  RunEvent: RunEventSchema,
+  RunsListResult: RunsListResultSchema,
+  RunsEventsResult: RunsEventsResultSchema,
   SecretsReloadParams: SecretsReloadParamsSchema,
   SecretsResolveParams: SecretsResolveParamsSchema,
   SecretsResolveAssignment: SecretsResolveAssignmentSchema,

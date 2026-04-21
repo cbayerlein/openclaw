@@ -31,6 +31,7 @@ import { nodeHandlers } from "./server-methods/nodes.js";
 import { pluginHostHookHandlers } from "./server-methods/plugin-host-hooks.js";
 import { pushHandlers } from "./server-methods/push.js";
 import { restartHandlers } from "./server-methods/restart.js";
+import { runsHandlers } from "./server-methods/runs.js";
 import { sendHandlers } from "./server-methods/send.js";
 import { sessionsHandlers } from "./server-methods/sessions.js";
 import { skillsHandlers } from "./server-methods/skills.js";
@@ -86,6 +87,7 @@ function authorizeGatewayMethod(method: string, client: GatewayRequestOptions["c
 export const coreGatewayHandlers: GatewayRequestHandlers = {
   ...connectHandlers,
   ...logsHandlers,
+  ...runsHandlers,
   ...voicewakeHandlers,
   ...voicewakeRoutingHandlers,
   ...healthHandlers,
