@@ -29,13 +29,34 @@ const inspectPortUsage = vi.fn(async (port: number) => ({
 const readLastGatewayErrorLine = vi.fn(async (_env?: NodeJS.ProcessEnv) => null);
 const auditGatewayServiceConfig = vi.fn(async (_opts?: unknown) => undefined);
 const serviceIsLoaded = vi.fn(async (_opts?: unknown) => true);
-const serviceReadRuntime = vi.fn(async (_env?: NodeJS.ProcessEnv) => ({ status: "running" }));
+const serviceReadRuntime = vi.fn<
+  (env?: NodeJS.ProcessEnv) => Promise<{
+    status: string;
+    missingUnit?: boolean;
+    state?: string;
+    subState?: string;
+    pid?: number;
+  }>
+>(async (_env?: NodeJS.ProcessEnv) => ({ status: "running" }));
 const systemdSystemIsEnabled = vi.fn(async (_opts?: unknown) => false);
-const systemdSystemReadRuntime = vi.fn(async (_env?: NodeJS.ProcessEnv) => ({
+const systemdSystemReadRuntime = vi.fn<
+  (env?: NodeJS.ProcessEnv) => Promise<{
+    status: string;
+    missingUnit?: boolean;
+    state?: string;
+    subState?: string;
+    pid?: number;
+  }>
+>(async (_env?: NodeJS.ProcessEnv) => ({
   status: "stopped",
   missingUnit: true,
 }));
-const systemdSystemReadCommand = vi.fn(async (_env?: NodeJS.ProcessEnv) => null);
+const systemdSystemReadCommand = vi.fn<
+  (env?: NodeJS.ProcessEnv) => Promise<{
+    programArguments: string[];
+    environment?: Record<string, string>;
+  } | null>
+>(async (_env?: NodeJS.ProcessEnv) => null);
 const inspectGatewayRestart = vi.fn<(opts?: unknown) => Promise<GatewayRestartSnapshot>>(
   async (_opts?: unknown) => ({
     runtime: { status: "running", pid: 1234 },
@@ -48,7 +69,7 @@ const serviceReadCommand = vi.fn<
   (env?: NodeJS.ProcessEnv) => Promise<{
     programArguments: string[];
     environment?: Record<string, string>;
-  }>
+  } | null>
 >(async (_env?: NodeJS.ProcessEnv) => ({
   programArguments: ["/bin/node", "cli", "gateway", "--port", "19001"],
   environment: {
