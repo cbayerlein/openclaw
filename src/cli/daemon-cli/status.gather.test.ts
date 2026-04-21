@@ -30,6 +30,12 @@ const readLastGatewayErrorLine = vi.fn(async (_env?: NodeJS.ProcessEnv) => null)
 const auditGatewayServiceConfig = vi.fn(async (_opts?: unknown) => undefined);
 const serviceIsLoaded = vi.fn(async (_opts?: unknown) => true);
 const serviceReadRuntime = vi.fn(async (_env?: NodeJS.ProcessEnv) => ({ status: "running" }));
+const systemdSystemIsEnabled = vi.fn(async (_opts?: unknown) => false);
+const systemdSystemReadRuntime = vi.fn(async (_env?: NodeJS.ProcessEnv) => ({
+  status: "stopped",
+  missingUnit: true,
+}));
+const systemdSystemReadCommand = vi.fn(async (_env?: NodeJS.ProcessEnv) => null);
 const inspectGatewayRestart = vi.fn<(opts?: unknown) => Promise<GatewayRestartSnapshot>>(
   async (_opts?: unknown) => ({
     runtime: { status: "running", pid: 1234 },
@@ -126,6 +132,12 @@ vi.mock("../../daemon/service.js", () => ({
     }),
 }));
 
+vi.mock("../../daemon/systemd.js", () => ({
+  isSystemdSystemServiceEnabled: (opts?: unknown) => systemdSystemIsEnabled(opts),
+  readSystemdSystemServiceExecStart: (env?: NodeJS.ProcessEnv) => systemdSystemReadCommand(env),
+  readSystemdSystemServiceRuntime: (env?: NodeJS.ProcessEnv) => systemdSystemReadRuntime(env),
+}));
+
 vi.mock("../../gateway/net.js", () => ({
   resolveGatewayBindHost: (bindMode: string, customBindHost?: string) =>
     resolveGatewayBindHost(bindMode, customBindHost),
@@ -175,6 +187,9 @@ describe("gatherDaemonStatus", () => {
     inspectGatewayRestart.mockClear();
     readConfigFileSnapshotCalls.mockClear();
     loadConfigCalls.mockClear();
+    systemdSystemIsEnabled.mockClear();
+    systemdSystemReadRuntime.mockClear();
+    systemdSystemReadCommand.mockClear();
     daemonLoadedConfig = {
       gateway: {
         bind: "lan",
@@ -187,6 +202,12 @@ describe("gatherDaemonStatus", () => {
         bind: "loopback",
       },
     };
+    systemdSystemIsEnabled.mockResolvedValue(false);
+    systemdSystemReadRuntime.mockResolvedValue({
+      status: "stopped",
+      missingUnit: true,
+    });
+    systemdSystemReadCommand.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -288,6 +309,44 @@ describe("gatherDaemonStatus", () => {
 
     expect(resolveGatewayBindHost).toHaveBeenCalledWith("loopback", undefined);
     expect(status.gateway?.bindMode).toBe("loopback");
+  });
+
+  it("falls back to a running systemd system unit when no user unit is loaded", async () => {
+    serviceIsLoaded.mockResolvedValueOnce(false);
+    serviceReadRuntime.mockResolvedValueOnce({
+      status: "stopped",
+      missingUnit: true,
+    });
+    serviceReadCommand.mockResolvedValueOnce(null as never);
+    systemdSystemIsEnabled.mockResolvedValueOnce(true);
+    systemdSystemReadRuntime.mockResolvedValueOnce({
+      status: "running",
+      state: "active",
+      subState: "running",
+      pid: 1234,
+    });
+    systemdSystemReadCommand.mockResolvedValueOnce({
+      programArguments: ["/bin/node", "cli", "gateway", "--port", "19001"],
+      environment: {
+        OPENCLAW_STATE_DIR: "/tmp/openclaw-daemon",
+        OPENCLAW_CONFIG_PATH: "/tmp/openclaw-daemon/openclaw.json",
+      },
+    });
+
+    const status = await gatherDaemonStatus({
+      rpc: {},
+      probe: true,
+      deep: false,
+    });
+
+    expect(status.service.loaded).toBe(true);
+    expect(status.service.runtime?.status).toBe("running");
+    expect(status.gateway?.port).toBe(19001);
+    expect(callGatewayStatusProbe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "wss://127.0.0.1:19001",
+      }),
+    );
   });
 
   it("does not force local TLS fingerprint when probe URL is explicitly overridden", async () => {

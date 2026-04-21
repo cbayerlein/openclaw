@@ -17,6 +17,11 @@ import type { FindExtraGatewayServicesOptions } from "../../daemon/inspect.js";
 import type { ServiceConfigAudit } from "../../daemon/service-audit.js";
 import type { GatewayServiceRuntime } from "../../daemon/service-runtime.js";
 import { resolveGatewayService } from "../../daemon/service.js";
+import {
+  isSystemdSystemServiceEnabled,
+  readSystemdSystemServiceExecStart,
+  readSystemdSystemServiceRuntime,
+} from "../../daemon/systemd.js";
 import { trimToUndefined } from "../../gateway/credentials.js";
 import {
   inspectBestEffortPrimaryTailnetIPv4,
@@ -427,7 +432,7 @@ export async function gatherDaemonStatus(
 ): Promise<DaemonStatus> {
   const service = resolveGatewayService();
   const command = await service.readCommand(process.env).catch(() => null);
-  const serviceEnv = command?.environment
+  let serviceEnv = command?.environment
     ? ({
         ...process.env,
         ...command.environment,
@@ -437,11 +442,32 @@ export async function gatherDaemonStatus(
     service.isLoaded({ env: serviceEnv }).catch(() => false),
     service.readRuntime(serviceEnv).catch((err) => ({ status: "unknown", detail: String(err) })),
   ]);
-  const configAudit = command
+  let effectiveCommand = command;
+  let effectiveLoaded = loaded;
+  let effectiveRuntime = runtime;
+  if (process.platform === "linux" && !loaded && runtime?.status !== "running") {
+    const [systemCommand, systemLoaded, systemRuntime] = await Promise.all([
+      readSystemdSystemServiceExecStart(serviceEnv).catch(() => null),
+      isSystemdSystemServiceEnabled({ env: serviceEnv }).catch(() => false),
+      readSystemdSystemServiceRuntime(serviceEnv).catch(() => undefined),
+    ]);
+    if (systemCommand || systemLoaded || systemRuntime?.status === "running") {
+      effectiveCommand = systemCommand ?? command;
+      effectiveLoaded = systemLoaded;
+      effectiveRuntime = systemRuntime ?? runtime;
+      serviceEnv = effectiveCommand?.environment
+        ? ({
+            ...process.env,
+            ...effectiveCommand.environment,
+          } satisfies NodeJS.ProcessEnv)
+        : process.env;
+    }
+  }
+  const configAudit = effectiveCommand
     ? await loadServiceAuditModule().then(({ auditGatewayServiceConfig }) =>
         auditGatewayServiceConfig({
           env: process.env,
-          command,
+          command: effectiveCommand,
         }),
       )
     : { ok: true, issues: [] satisfies ServiceConfigAudit["issues"] };
@@ -452,12 +478,12 @@ export async function gatherDaemonStatus(
     cliConfigSummary,
     daemonConfigSummary,
     configMismatch,
-  } = await loadDaemonConfigContext(command?.environment);
+  } = await loadDaemonConfigContext(effectiveCommand?.environment);
   const { gateway, daemonPort, cliPort, probeUrlOverride } = await resolveGatewayStatusSummary({
     cliCfg,
     daemonCfg,
     mergedDaemonEnv,
-    commandProgramArguments: command?.programArguments,
+    commandProgramArguments: effectiveCommand?.programArguments,
     rpcUrlOverride: opts.rpc.url,
   });
   const { portStatus, portCliStatus } = await inspectDaemonPortStatuses({
@@ -529,7 +555,7 @@ export async function gatherDaemonStatus(
     rpcAuthWarning = undefined;
   }
   const health =
-    opts.probe && loaded && rpc?.ok !== true
+    opts.probe && effectiveLoaded && rpc?.ok !== true
       ? await loadRestartHealthModule()
           .then(({ inspectGatewayRestart }) =>
             inspectGatewayRestart({
@@ -542,7 +568,12 @@ export async function gatherDaemonStatus(
       : undefined;
 
   let lastError: string | undefined;
-  if (loaded && runtime?.status === "running" && portStatus && portStatus.status !== "busy") {
+  if (
+    effectiveLoaded &&
+    effectiveRuntime?.status === "running" &&
+    portStatus &&
+    portStatus.status !== "busy"
+  ) {
     lastError = (await readLastGatewayErrorLine(mergedDaemonEnv as NodeJS.ProcessEnv)) ?? undefined;
   }
 
@@ -550,11 +581,11 @@ export async function gatherDaemonStatus(
     logFile: resolveConfiguredLogFilePath(cliCfg),
     service: {
       label: service.label,
-      loaded,
+      loaded: effectiveLoaded,
       loadedText: service.loadedText,
       notLoadedText: service.notLoadedText,
-      command,
-      runtime,
+      command: effectiveCommand,
+      runtime: effectiveRuntime,
       configAudit,
     },
     config: {
