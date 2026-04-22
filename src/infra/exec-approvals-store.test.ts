@@ -29,6 +29,7 @@ let saveExecApprovals: ExecApprovalsModule["saveExecApprovals"];
 
 const tempDirs: string[] = [];
 const originalOpenClawHome = process.env.OPENCLAW_HOME;
+const originalOpenClawStateDir = process.env.OPENCLAW_STATE_DIR;
 
 beforeAll(async () => {
   ({
@@ -59,6 +60,11 @@ afterEach(() => {
   } else {
     process.env.OPENCLAW_HOME = originalOpenClawHome;
   }
+  if (originalOpenClawStateDir === undefined) {
+    delete process.env.OPENCLAW_STATE_DIR;
+  } else {
+    process.env.OPENCLAW_STATE_DIR = originalOpenClawStateDir;
+  }
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -88,6 +94,19 @@ describe("exec approvals store helpers", () => {
     );
     expect(path.normalize(resolveExecApprovalsSocketPath())).toBe(
       path.normalize(path.join(dir, ".openclaw", "exec-approvals.sock")),
+    );
+  });
+
+  it("prefers OPENCLAW_STATE_DIR for approvals file and socket paths", () => {
+    const dir = createHomeDir();
+    const stateDir = path.join(dir, "state-root");
+    process.env.OPENCLAW_STATE_DIR = stateDir;
+
+    expect(path.normalize(resolveExecApprovalsPath())).toBe(
+      path.normalize(path.join(stateDir, "exec-approvals.json")),
+    );
+    expect(path.normalize(resolveExecApprovalsSocketPath())).toBe(
+      path.normalize(path.join(stateDir, "exec-approvals.sock")),
     );
   });
 
@@ -215,6 +234,21 @@ describe("exec approvals store helpers", () => {
       saveExecApprovals({ version: 1, defaults: { security: "full" }, agents: {} }),
     ).toThrow(/Refusing to traverse symlink in exec approvals path/);
     expect(fs.existsSync(path.join(linkedStateTarget, "exec-approvals.json"))).toBe(false);
+  });
+
+  it("uses OPENCLAW_STATE_DIR directly even when OPENCLAW_HOME points at a symlinked legacy path", () => {
+    const realHome = makeTempDir();
+    const linkedHome = `${realHome}-link`;
+    const stateDir = path.join(realHome, "state");
+    tempDirs.push(realHome);
+    fs.symlinkSync(realHome, linkedHome);
+    process.env.OPENCLAW_HOME = linkedHome;
+    process.env.OPENCLAW_STATE_DIR = stateDir;
+
+    expect(() =>
+      saveExecApprovals({ version: 1, defaults: { security: "full" }, agents: {} }),
+    ).not.toThrow();
+    expect(fs.existsSync(path.join(stateDir, "exec-approvals.json"))).toBe(true);
   });
 
   it("adds trimmed allowlist entries once and persists generated ids", () => {
