@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { onAgentEvent, resetAgentEventsForTest } from "../infra/agent-events.js";
 import { peekSystemEvents, resetSystemEventsForTest } from "../infra/system-events.js";
 import { wrapToolWithBeforeToolCallHook } from "./pi-tools.before-tool-call.js";
+import { createUpdatePlanTool } from "./tools/update-plan-tool.js";
 
 const tempDirs: string[] = [];
 
@@ -167,5 +168,73 @@ describe("guardrail before_tool_call behavior", () => {
       "Overwriting an existing file should use apply_patch",
     );
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("lets read proceed after update_plan succeeds in the same session", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-guardrail-plan-"));
+    tempDirs.push(dir);
+    const activePlanRef: {
+      value?: {
+        updatedAt: number;
+        explanation?: string;
+        steps: Array<{ step: string; status: "pending" | "in_progress" | "completed" }>;
+      };
+    } = {};
+    const updatePlan = createUpdatePlanTool({
+      sessionKey: "agent:main:main",
+      sessionId: "sess-plan-1",
+      storePath: path.join(dir, "sessions.json"),
+      runId: "run-plan-1",
+      activePlanRef,
+      persistSessionPlan: true,
+    });
+    const readExecute = vi.fn().mockResolvedValue({
+      content: [{ type: "text", text: "guardrail regression fixture" }],
+      details: { ok: true },
+    });
+    const read = wrapToolWithBeforeToolCallHook({ name: "read", execute: readExecute } as never, {
+      sessionKey: "agent:main:main",
+      sessionId: "sess-plan-1",
+      runId: "run-plan-1",
+      guardrails: {
+        planningMode: "enforced",
+        persistSessionPlan: true,
+        planningRequirement: "almost_always",
+        editPreferenceMode: "enforced",
+        preferredEditTool: "apply_patch",
+      },
+      activePlanRef,
+    });
+
+    await expect(read.execute("call-plan-read-blocked", { path: "README.md" })).rejects.toThrow(
+      "Planning required before substantial work",
+    );
+    expect(readExecute).not.toHaveBeenCalled();
+
+    await expect(
+      updatePlan.execute("call-plan-update", {
+        plan: [
+          { step: "Inspect the regression path", status: "completed" },
+          { step: "Read the requested file", status: "in_progress" },
+        ],
+      }),
+    ).resolves.toBeDefined();
+
+    expect(activePlanRef.value?.steps).toEqual([
+      { step: "Inspect the regression path", status: "completed" },
+      { step: "Read the requested file", status: "in_progress" },
+    ]);
+
+    await expect(read.execute("call-plan-read-ok", { path: "README.md" })).resolves.toEqual(
+      expect.objectContaining({
+        content: expect.arrayContaining([
+          expect.objectContaining({
+            type: "text",
+            text: expect.stringContaining("guardrail regression fixture"),
+          }),
+        ]),
+      }),
+    );
+    expect(readExecute).toHaveBeenCalledOnce();
   });
 });
