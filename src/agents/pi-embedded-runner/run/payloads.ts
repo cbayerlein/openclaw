@@ -9,13 +9,13 @@ import type { ReasoningLevel, ThinkLevel, VerboseLevel } from "../../../auto-rep
 import { isSilentReplyPayloadText, SILENT_REPLY_TOKEN } from "../../../auto-reply/tokens.js";
 import { formatToolAggregate } from "../../../auto-reply/tool-meta.js";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
+import type { RuntimeWarning } from "../../../infra/runtime-warnings.js";
 import { isCronSessionKey } from "../../../routing/session-key.js";
 import { extractAssistantTextForPhase } from "../../../shared/chat-message-content.js";
 import {
   normalizeOptionalLowercaseString,
   normalizeOptionalString,
 } from "../../../shared/string-coerce.js";
-import type { RuntimeWarning } from "../../../infra/runtime-warnings.js";
 import {
   BILLING_ERROR_USER_MESSAGE,
   formatAssistantErrorText,
@@ -178,8 +178,10 @@ function resolveToolErrorWarningPolicy(params: {
 }
 
 export function resolveToolErrorWarning(params: {
-  lastToolError?: LastToolError;
+  lastToolError?: ToolErrorSummary;
   hasUserFacingReply: boolean;
+  hasUserFacingErrorReply: boolean;
+  hasUserFacingFailureAcknowledgement: boolean;
   suppressToolErrors: boolean;
   suppressToolErrorWarnings?: boolean;
   isCronTrigger?: boolean;
@@ -197,6 +199,8 @@ export function resolveToolErrorWarning(params: {
   const warningPolicy = resolveToolErrorWarningPolicy({
     lastToolError: params.lastToolError,
     hasUserFacingReply: params.hasUserFacingReply,
+    hasUserFacingErrorReply: params.hasUserFacingErrorReply,
+    hasUserFacingFailureAcknowledgement: params.hasUserFacingFailureAcknowledgement,
     suppressToolErrors: params.suppressToolErrors,
     suppressToolErrorWarnings: params.suppressToolErrorWarnings,
     isCronTrigger: params.isCronTrigger,

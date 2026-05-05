@@ -326,6 +326,8 @@ export function createOpenClawTools(
     disablePluginTools?: boolean;
     /** Records hot-path tool-prep stages for reply startup diagnostics. */
     recordToolPrepStage?: (name: string) => void;
+    /** Current run identifier for run-scoped tool events. */
+    runId?: string;
     /** Trusted sender id from inbound context (not tool args). */
     requesterSenderId?: string | null;
     /** Auth profiles already loaded for this run; used for prompt-time tool availability. */

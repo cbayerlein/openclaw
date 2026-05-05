@@ -26,6 +26,7 @@ import {
 import { makeProxyFetch } from "./proxy.js";
 import {
   buildTelegramThreadReplyParams,
+  type TelegramThreadReplyParams,
   resolveTelegramSendThreadSpec,
 } from "./reply-parameters.js";
 import {

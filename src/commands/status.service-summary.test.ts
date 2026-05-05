@@ -1,11 +1,22 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GatewayService } from "../daemon/service.js";
 import type { GatewayServiceEnvArgs } from "../daemon/service.js";
 import { createMockGatewayService } from "../daemon/service.test-helpers.js";
 import { withTempDir } from "../test-helpers/temp-dir.js";
 import { readServiceStatusSummary } from "./status.service-summary.js";
+
+const systemdMocks = vi.hoisted(() => ({
+  readSystemdSystemServiceExecStart: vi.fn(),
+  isSystemdSystemServiceEnabled: vi.fn(),
+  readSystemdSystemServiceRuntime: vi.fn(),
+}));
+
+vi.mock("../daemon/systemd.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../daemon/systemd.js")>()),
+  ...systemdMocks,
+}));
 
 function createService(overrides: Partial<GatewayService>): GatewayService {
   return createMockGatewayService({
@@ -17,6 +28,15 @@ function createService(overrides: Partial<GatewayService>): GatewayService {
 }
 
 describe("readServiceStatusSummary", () => {
+  beforeEach(() => {
+    systemdMocks.readSystemdSystemServiceExecStart.mockReset();
+    systemdMocks.readSystemdSystemServiceExecStart.mockResolvedValue(null);
+    systemdMocks.isSystemdSystemServiceEnabled.mockReset();
+    systemdMocks.isSystemdSystemServiceEnabled.mockResolvedValue(false);
+    systemdMocks.readSystemdSystemServiceRuntime.mockReset();
+    systemdMocks.readSystemdSystemServiceRuntime.mockResolvedValue(undefined);
+  });
+
   it("marks OpenClaw-managed services as installed", async () => {
     const summary = await readServiceStatusSummary(
       createService({
@@ -54,6 +74,22 @@ describe("readServiceStatusSummary", () => {
     expect(summary.managedByOpenClaw).toBe(false);
     expect(summary.externallyManaged).toBe(false);
     expect(summary.loadedText).toBe("disabled");
+  });
+
+  it("detects OpenClaw-managed system-level gateway services", async () => {
+    systemdMocks.readSystemdSystemServiceExecStart.mockResolvedValue({
+      programArguments: ["openclaw", "gateway", "run"],
+    });
+    systemdMocks.isSystemdSystemServiceEnabled.mockResolvedValue(true);
+    systemdMocks.readSystemdSystemServiceRuntime.mockResolvedValue({ status: "running" });
+
+    const summary = await readServiceStatusSummary(createService({}), "Daemon");
+
+    expect(summary.installed).toBe(true);
+    expect(summary.loaded).toBe(true);
+    expect(summary.managedByOpenClaw).toBe(true);
+    expect(summary.externallyManaged).toBe(false);
+    expect(summary.loadedText).toBe("enabled");
   });
 
   it("passes command environment to runtime and loaded checks", async () => {

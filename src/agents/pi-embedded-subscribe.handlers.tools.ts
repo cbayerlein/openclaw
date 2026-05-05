@@ -17,12 +17,7 @@ import {
   emitAgentPatchSummaryEvent,
 } from "../infra/agent-events.js";
 import type { ExecApprovalDecision } from "../infra/exec-approvals.js";
-import {
-  buildExecApprovalPendingReplyPayload,
-  buildExecApprovalUnavailableReplyPayload,
-} from "../infra/exec-approval-reply.js";
 import { routeRuntimeWarning } from "../infra/runtime-warnings.js";
-import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import type { PluginHookAfterToolCallEvent } from "../plugins/types.js";
 import { createLazyImportLoader } from "../shared/lazy-promise.js";
 import { normalizeOptionalLowercaseString, readStringValue } from "../shared/string-coerce.js";

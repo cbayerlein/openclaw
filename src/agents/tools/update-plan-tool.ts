@@ -1,7 +1,6 @@
-import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
+import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { Type } from "typebox";
 import { normalizeStoreSessionKey, updateSessionStore } from "../../config/sessions/store.js";
-import type { SessionActivePlan } from "../../config/sessions/types.js";
 import { emitAgentEvent } from "../../infra/agent-events.js";
 import { enqueueSystemEvent } from "../../infra/system-events.js";
 import {
@@ -16,12 +15,7 @@ import {
   describeUpdatePlanTool,
   UPDATE_PLAN_TOOL_DISPLAY_SUMMARY,
 } from "../tool-description-presets.js";
-import {
-  type AnyAgentTool,
-  ToolInputError,
-  readStringParam,
-  textResult,
-} from "./common.js";
+import { type AnyAgentTool, ToolInputError, readStringParam, textResult } from "./common.js";
 
 const PLAN_STEP_STATUSES = ["pending", "in_progress", "completed"] as const;
 
@@ -122,7 +116,7 @@ function buildEphemeralResult(args: Record<string, unknown>): AgentToolResult<{
 function buildPersistentTool(
   params: Required<Pick<UpdatePlanToolParams, "sessionKey" | "storePath">> &
     Omit<UpdatePlanToolParams, "sessionKey" | "storePath">,
-): AgentTool<typeof updatePlanSchema, { activePlan: SessionActivePlan }> {
+): AnyAgentTool {
   const normalizedSessionKey = normalizeStoreSessionKey(params.sessionKey);
 
   return {
@@ -187,9 +181,7 @@ function buildPersistentTool(
 }
 
 export function createUpdatePlanTool(): AnyAgentTool;
-export function createUpdatePlanTool(
-  params: UpdatePlanToolParams,
-): AgentTool<typeof updatePlanSchema, { activePlan: SessionActivePlan }> | AnyAgentTool | null;
+export function createUpdatePlanTool(params: UpdatePlanToolParams): AnyAgentTool | null;
 export function createUpdatePlanTool(params?: UpdatePlanToolParams) {
   const sessionKey = params?.sessionKey?.trim();
   const storePath = params?.storePath?.trim();
@@ -207,6 +199,7 @@ export function createUpdatePlanTool(params?: UpdatePlanToolParams) {
     displaySummary: UPDATE_PLAN_TOOL_DISPLAY_SUMMARY,
     description: describeUpdatePlanTool(),
     parameters: updatePlanSchema,
-    execute: async (_toolCallId, args) => buildEphemeralResult((args ?? {}) as Record<string, unknown>),
+    execute: async (_toolCallId, args) =>
+      buildEphemeralResult((args ?? {}) as Record<string, unknown>),
   } satisfies AnyAgentTool;
 }

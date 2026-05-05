@@ -1637,7 +1637,7 @@ export function createConfigIO(
         loadShellEnvFallback({
           enabled: true,
           env: deps.env,
-          expectedKeys: SHELL_ENV_EXPECTED_KEYS,
+          expectedKeys: resolveShellEnvExpectedKeys(deps.env),
           logger: deps.logger,
           timeoutMs: cfg.env?.shellEnv?.timeoutMs ?? resolveShellEnvFallbackTimeoutMs(deps.env),
         });

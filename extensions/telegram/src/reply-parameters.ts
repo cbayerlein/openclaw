@@ -10,7 +10,7 @@ type TelegramReplyParameters = {
   quote_entities?: MessageEntity[];
 };
 
-type TelegramThreadReplyParams = {
+export type TelegramThreadReplyParams = {
   message_thread_id?: number;
   reply_parameters?: TelegramReplyParameters;
   reply_to_message_id?: number;

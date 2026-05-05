@@ -111,13 +111,13 @@ function clampLimit(limit: number | undefined): number {
 
 function resolveRetentionDays(): number {
   const raw = process.env.OPENCLAW_RUN_HISTORY_RETENTION_DAYS?.trim();
-  const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_RETENTION_DAYS;
 }
 
 function resolveMaxRuns(): number {
   const raw = process.env.OPENCLAW_RUN_HISTORY_MAX_RUNS?.trim();
-  const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_RUNS;
 }
 

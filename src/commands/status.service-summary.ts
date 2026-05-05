@@ -4,6 +4,7 @@ import {
 } from "../daemon/service-layout.js";
 import type { GatewayServiceRuntime } from "../daemon/service-runtime.js";
 import { readGatewayServiceState, type GatewayService } from "../daemon/service.js";
+import * as systemd from "../daemon/systemd.js";
 
 export type ServiceStatusSummary = {
   label: string;
@@ -44,13 +45,13 @@ export async function readServiceStatusSummary(
     const installed = managedByOpenClaw || externallyManaged;
     const loadedText = externallyManaged
       ? "running (externally managed)"
-      : state.loaded
+      : loaded
         ? service.loadedText
         : service.notLoadedText;
     return {
       label: service.label,
       installed,
-      loaded: state.loaded,
+      loaded,
       managedByOpenClaw,
       externallyManaged,
       loadedText,

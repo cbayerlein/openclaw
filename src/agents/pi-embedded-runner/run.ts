@@ -7,7 +7,7 @@ import { SILENT_REPLY_TOKEN } from "../../auto-reply/tokens.js";
 import { ensureContextEnginesInitialized } from "../../context-engine/init.js";
 import { resolveContextEngine } from "../../context-engine/registry.js";
 import { emitAgentEvent, emitAgentPlanEvent } from "../../infra/agent-events.js";
-import { computeBackoff, sleepWithAbort } from "../../infra/backoff.js";
+import { sleepWithAbort } from "../../infra/backoff.js";
 import { freezeDiagnosticTraceContext } from "../../infra/diagnostic-trace-context.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { routeRuntimeWarning } from "../../infra/runtime-warnings.js";
@@ -48,10 +48,10 @@ import {
   FailoverError,
   resolveFailoverStatus,
 } from "../failover-error.js";
+import { getPlanCompletionAdvisoryMessage, shouldWarnAboutPlanCompletion } from "../guardrails.js";
 import { selectAgentHarness } from "../harness/selection.js";
 import { LiveSessionModelSwitchError } from "../live-model-switch-error.js";
 import { shouldSwitchToLiveModel, clearLiveModelSwitchPending } from "../live-model-switch.js";
-import { getPlanCompletionAdvisoryMessage, shouldWarnAboutPlanCompletion } from "../guardrails.js";
 import {
   applyAuthHeaderOverride,
   applyLocalNoAuthHeaderOverride,
@@ -87,6 +87,7 @@ import { buildAgentRuntimeAuthPlan } from "../runtime-plan/auth.js";
 import { buildAgentRuntimePlan } from "../runtime-plan/build.js";
 import { ensureRuntimePluginsLoaded } from "../runtime-plugins.js";
 import { resolveToolLoopDetectionConfig } from "../tool-loop-detection-config.js";
+import { isLikelyMutatingToolName } from "../tool-mutation.js";
 import { derivePromptTokens, normalizeUsage, type UsageLike } from "../usage.js";
 import { redactRunIdentifier, resolveRunWorkspaceDir } from "../workspace-run.js";
 import { runPostCompactionSideEffects } from "./compaction-hooks.js";
@@ -2287,6 +2288,9 @@ export async function runEmbeddedPiAgent(
               ),
               suppressToolErrors: Boolean(params.config.messages?.suppressToolErrors),
               suppressToolErrorWarnings: params.suppressToolErrorWarnings,
+              hasUserFacingErrorReply: false,
+              hasUserFacingFailureAcknowledgement: false,
+              sessionKey: warningSessionKey ?? "",
               verboseLevel: params.verboseLevel,
               useMarkdown: resolvedToolResultFormat === "markdown",
             });

@@ -69,15 +69,6 @@ function resolveKnownReasoningDefault(providerId: string, modelId: string): bool
   return undefined;
 }
 
-function resolveDefaultProviderApi(
-  providerId: string,
-  providerApi: ModelDefinitionConfig["api"] | undefined,
-): ModelDefinitionConfig["api"] | undefined {
-  if (providerApi) {
-    return providerApi;
-  }
-  return normalizeProviderId(providerId) === "anthropic" ? "anthropic-messages" : undefined;
-}
 function isPositiveNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
