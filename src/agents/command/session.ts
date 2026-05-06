@@ -223,10 +223,7 @@ export function resolveSessionKeyForRequest(opts: {
   const storePath = resolveStorePath(sessionCfg?.store, {
     agentId: storeAgentId,
   });
-  // Agent runs can mutate the session store from a separate embedded-runner process
-  // (for example via update_plan). Resolve against fresh on-disk state so follow-up
-  // turns do not reuse stale per-process cache entries.
-  const sessionStore = loadSessionStore(storePath, { skipCache: true });
+  const sessionStore = loadSessionStore(storePath);
 
   const ctx: MsgContext | undefined = opts.to?.trim() ? { From: opts.to } : undefined;
   let sessionKey: string | undefined =
@@ -334,12 +331,11 @@ export function resolveSession(opts: {
     : false;
   const forceNewSession = opts.forceNewSession === true;
   const sessionEntry = forceNewSession ? undefined : existingSessionEntry;
-  const sessionId =
-    forceNewSession
-      ? crypto.randomUUID()
-      : opts.sessionId?.trim() ||
-        (fresh ? existingSessionEntry?.sessionId : undefined) ||
-        crypto.randomUUID();
+  const sessionId = forceNewSession
+    ? crypto.randomUUID()
+    : opts.sessionId?.trim() ||
+      (fresh ? existingSessionEntry?.sessionId : undefined) ||
+      crypto.randomUUID();
   const isNewSession = forceNewSession || (!fresh && !opts.sessionId);
 
   clearBootstrapSnapshotOnSessionRollover({

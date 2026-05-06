@@ -55,7 +55,6 @@ import { formatUserTime, resolveUserTimeFormat, resolveUserTimezone } from "../d
 import { DEFAULT_CONTEXT_TOKENS, DEFAULT_MODEL, DEFAULT_PROVIDER } from "../defaults.js";
 import { resolveOpenClawReferencePaths } from "../docs-path.js";
 import { coerceToFailoverError, describeFailoverError } from "../failover-error.js";
-import type { ActivePlanRef } from "../guardrails.js";
 import { resolveHeartbeatPromptForSystemPrompt } from "../heartbeat-system-prompt.js";
 import {
   applyAuthHeaderOverride,
@@ -659,7 +658,6 @@ async function compactEmbeddedPiSessionDirectOnce(
       });
 
     const runAbortController = new AbortController();
-    const activePlanRef: ActivePlanRef = { value: params.activePlan };
     const toolsRaw = createOpenClawCodingTools({
       exec: {
         elevated: params.bashElevated,
@@ -674,7 +672,6 @@ async function compactEmbeddedPiSessionDirectOnce(
           : undefined,
       sessionId: params.sessionId,
       runId: params.runId,
-      activePlanRef,
       groupId: params.groupId,
       groupChannel: params.groupChannel,
       groupSpace: params.groupSpace,

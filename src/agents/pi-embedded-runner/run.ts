@@ -1157,7 +1157,6 @@ export async function runEmbeddedPiAgent(
             images: params.images,
             imageOrder: params.imageOrder,
             clientTools: params.clientTools,
-            activePlan: params.activePlan,
             disableTools: params.disableTools,
             provider,
             modelId,

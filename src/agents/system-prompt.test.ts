@@ -262,28 +262,6 @@ describe("buildAgentSystemPrompt", () => {
     expect(prompt).toContain("docs/gateway/configuration-reference.md");
   });
 
-  it("includes planning guidance and the active plan when update_plan is available", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      toolNames: ["read", "update_plan", "apply_patch"],
-      activePlan: {
-        updatedAt: Date.now(),
-        explanation: "Land the feature with tests",
-        steps: [
-          { step: "Inspect architecture", status: "completed" },
-          { step: "Implement guardrails", status: "in_progress" },
-        ],
-      },
-    });
-
-    expect(prompt).toContain("## Planning");
-    expect(prompt).toContain("call `update_plan` before using other substantive tools");
-    expect(prompt).toContain("Active plan:");
-    expect(prompt).toContain("Explanation: Land the feature with tests");
-    expect(prompt).toContain("- [completed] Inspect architecture");
-    expect(prompt).toContain("- [in_progress] Implement guardrails");
-  });
-
   it("guides runtime completion events without exposing internal metadata", () => {
     const prompt = buildAgentSystemPrompt({
       workspaceDir: "/tmp/openclaw",

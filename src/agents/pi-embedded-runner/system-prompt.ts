@@ -1,7 +1,6 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { AgentSession } from "@mariozechner/pi-coding-agent";
 import type { SourceReplyDeliveryMode } from "../../auto-reply/get-reply-options.types.js";
-import type { SessionActivePlan } from "../../config/sessions.js";
 import type { MemoryCitationsMode } from "../../config/types.memory.js";
 import type { BootstrapMode } from "../bootstrap-mode.js";
 import type { ResolvedTimeFormat } from "../date-time.js";
@@ -58,7 +57,6 @@ export function buildEmbeddedSystemPrompt(params: {
   };
   messageToolHints?: string[];
   sandboxInfo?: EmbeddedSandboxInfo;
-  activePlan?: SessionActivePlan;
   tools: AgentTool[];
   modelAliasLines: string[];
   userTimezone: string;
@@ -96,7 +94,6 @@ export function buildEmbeddedSystemPrompt(params: {
     runtimeInfo: params.runtimeInfo,
     messageToolHints: params.messageToolHints,
     sandboxInfo: params.sandboxInfo,
-    activePlan: params.activePlan,
     toolNames: params.tools.map((tool) => tool.name),
     modelAliasLines: params.modelAliasLines,
     userTimezone: params.userTimezone,

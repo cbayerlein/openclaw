@@ -1,4 +1,4 @@
-import type { OpenClawConfig } from "../config/config.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { ToolLoopDetectionConfig } from "../config/types.tools.js";
 import {
   diagnosticErrorCategory,
@@ -13,9 +13,6 @@ import {
   freezeDiagnosticTraceContext,
   type DiagnosticTraceContext,
 } from "../infra/diagnostic-trace-context.js";
-import { emitAgentEvent } from "../infra/agent-events.js";
-import { routeRuntimeWarning } from "../infra/runtime-warnings.js";
-import { enqueueSystemEvent } from "../infra/system-events.js";
 import type { SessionState } from "../logging/diagnostic-session-state.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
@@ -29,14 +26,6 @@ import {
 import { createLazyRuntimeSurface } from "../shared/lazy-runtime.js";
 import { isPlainObject } from "../utils.js";
 import { copyChannelAgentToolMeta } from "./channel-tools.js";
-import {
-  evaluateEditGuardrail,
-  getNoPlanBlockMessage,
-  shouldEmitMissingPlanAdvisory,
-  shouldBlockForMissingPlan,
-  type ActivePlanRef,
-  type ResolvedGuardrailConfig,
-} from "./guardrails.js";
 import { normalizeToolName } from "./tool-policy.js";
 import type { AnyAgentTool } from "./tools/common.js";
 import { callGatewayTool } from "./tools/gateway.js";
@@ -57,9 +46,6 @@ export type HookContext = {
   sessionId?: string;
   runId?: string;
   trace?: DiagnosticTraceContext;
-  workspaceDir?: string;
-  activePlanRef?: ActivePlanRef;
-  guardrails?: ResolvedGuardrailConfig;
   loopDetection?: ToolLoopDetectionConfig;
   onToolOutcome?: ToolOutcomeObserver;
 };
@@ -439,154 +425,6 @@ export async function runBeforeToolCallHook(args: {
 }): Promise<HookOutcome> {
   const toolName = normalizeToolName(args.toolName || "tool");
   const params = args.params;
-
-  if (shouldBlockForMissingPlan({ toolName, toolParams: params, ctx: args.ctx })) {
-    const reason = getNoPlanBlockMessage();
-    if (args.ctx?.runId) {
-      emitAgentEvent({
-        runId: args.ctx.runId,
-        sessionKey: args.ctx.sessionKey,
-        stream: "guardrail",
-        data: {
-          event: "plan_missing_blocked",
-          toolName,
-          reason,
-        },
-      });
-    }
-    if (args.ctx?.sessionKey) {
-      enqueueSystemEvent(reason, { sessionKey: args.ctx.sessionKey });
-    }
-    if (args.ctx?.config) {
-      await routeRuntimeWarning({
-        cfg: args.ctx.config,
-        warning: {
-          kind: "guardrail_warning",
-          source: "guardrail",
-          severity: "warn",
-          text: reason,
-          fingerprint: ["guardrail_warning", "plan_missing_blocked", toolName].join("|"),
-          agentId: args.ctx.agentId,
-          sessionKey: args.ctx.sessionKey,
-          toolName,
-        },
-      });
-    }
-    return { blocked: true, reason };
-  }
-  if (shouldEmitMissingPlanAdvisory({ toolName, toolParams: params, ctx: args.ctx })) {
-    const message = getNoPlanBlockMessage();
-    if (args.ctx?.runId) {
-      emitAgentEvent({
-        runId: args.ctx.runId,
-        sessionKey: args.ctx.sessionKey,
-        stream: "guardrail",
-        data: {
-          event: "plan_missing_advisory",
-          toolName,
-          message,
-        },
-      });
-    }
-    if (args.ctx?.sessionKey) {
-      enqueueSystemEvent(message, { sessionKey: args.ctx.sessionKey });
-    }
-    if (args.ctx?.config) {
-      await routeRuntimeWarning({
-        cfg: args.ctx.config,
-        warning: {
-          kind: "guardrail_warning",
-          source: "guardrail",
-          severity: "warn",
-          text: message,
-          fingerprint: ["guardrail_warning", "plan_missing_advisory", toolName].join("|"),
-          agentId: args.ctx.agentId,
-          sessionKey: args.ctx.sessionKey,
-          toolName,
-        },
-      });
-    }
-  }
-
-  const editGuardrail = evaluateEditGuardrail({
-    toolName,
-    toolParams: params,
-    ctx: args.ctx,
-  });
-  if (editGuardrail.action === "block") {
-    if (args.ctx?.runId) {
-      emitAgentEvent({
-        runId: args.ctx.runId,
-        sessionKey: args.ctx.sessionKey,
-        stream: "guardrail",
-        data: {
-          event: "edit_preference_blocked",
-          toolName,
-          reason: editGuardrail.message,
-        },
-      });
-    }
-    if (args.ctx?.sessionKey) {
-      enqueueSystemEvent(editGuardrail.message, { sessionKey: args.ctx.sessionKey });
-    }
-    if (args.ctx?.config) {
-      await routeRuntimeWarning({
-        cfg: args.ctx.config,
-        warning: {
-          kind: "guardrail_warning",
-          source: "guardrail",
-          severity: "warn",
-          text: editGuardrail.message,
-          fingerprint: ["guardrail_warning", "edit_preference_blocked", toolName].join("|"),
-          agentId: args.ctx.agentId,
-          sessionKey: args.ctx.sessionKey,
-          toolName,
-        },
-      });
-    }
-    return { blocked: true, reason: editGuardrail.message };
-  }
-  if (editGuardrail.action === "advisory" || editGuardrail.action === "exception") {
-    if (args.ctx?.runId) {
-      emitAgentEvent({
-        runId: args.ctx.runId,
-        sessionKey: args.ctx.sessionKey,
-        stream: "guardrail",
-        data: {
-          event:
-            editGuardrail.action === "exception"
-              ? "edit_preference_exception"
-              : "edit_preference_advisory",
-          toolName,
-          message: editGuardrail.message,
-        },
-      });
-    }
-    if (args.ctx?.sessionKey) {
-      enqueueSystemEvent(editGuardrail.message, { sessionKey: args.ctx.sessionKey });
-    }
-    if (args.ctx?.config) {
-      await routeRuntimeWarning({
-        cfg: args.ctx.config,
-        warning: {
-          kind: "guardrail_warning",
-          source: "guardrail",
-          severity: "warn",
-          text: editGuardrail.message,
-          fingerprint: [
-            "guardrail_warning",
-            editGuardrail.action === "exception"
-              ? "edit_preference_exception"
-              : "edit_preference_advisory",
-            toolName,
-          ].join("|"),
-          agentId: args.ctx.agentId,
-          sessionKey: args.ctx.sessionKey,
-          toolName,
-        },
-      });
-    }
-  }
 
   if (args.ctx?.sessionKey) {
     const { getDiagnosticSessionState, logToolLoopAction, detectToolCallLoop, recordToolCall } =

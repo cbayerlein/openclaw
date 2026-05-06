@@ -1,5 +1,4 @@
 import { selectApplicableRuntimeConfig } from "../config/config.js";
-import { resolveStorePath } from "../config/sessions/paths.js";
 import type { AgentModelConfig } from "../config/types.agents-shared.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { callGateway } from "../gateway/call.js";
@@ -14,7 +13,6 @@ import type { GatewayMessageChannel } from "../utils/message-channel.js";
 import { resolveAgentWorkspaceDir, resolveSessionAgentIds } from "./agent-scope.js";
 import { listProfilesForProvider } from "./auth-profiles.js";
 import type { AuthProfileStore } from "./auth-profiles/types.js";
-import type { ActivePlanRef } from "./guardrails.js";
 import { resolveOpenClawPluginToolsForOptions } from "./openclaw-plugin-tools.js";
 import { applyNodesToolWorkspaceGuard } from "./openclaw-tools.nodes-workspace-guard.js";
 import {
@@ -336,10 +334,6 @@ export function createOpenClawTools(
     senderIsOwner?: boolean;
     /** Ephemeral session UUID — regenerated on /new and /reset. */
     sessionId?: string;
-    /** Mutable active plan ref shared with guardrail checks for this run. */
-    activePlanRef?: ActivePlanRef;
-    /** Whether update_plan should persist the active plan into the session store. */
-    persistSessionPlan?: boolean;
     /**
      * Workspace directory to pass to spawned subagents for inheritance.
      * Defaults to workspaceDir. Use this to pass the actual agent workspace when the
@@ -376,11 +370,6 @@ export function createOpenClawTools(
     options?.spawnWorkspaceDir ?? options?.workspaceDir ?? inferredWorkspaceDir,
   );
   options?.recordToolPrepStage?.("openclaw-tools:session-workspace");
-  const storePath = resolvedConfig
-    ? resolveStorePath(resolvedConfig.session?.store, {
-        agentId: options?.requesterAgentIdOverride ?? sessionAgentId,
-      })
-    : undefined;
   const deliveryContext = normalizeDeliveryContext({
     channel: options?.agentChannel,
     to: options?.agentTo,
@@ -576,18 +565,7 @@ export function createOpenClawTools(
       agentSessionKey: options?.agentSessionKey,
       requesterAgentIdOverride: options?.requesterAgentIdOverride,
     }),
-    ...(includeUpdatePlanTool
-      ? [
-          createUpdatePlanTool({
-            sessionKey: options?.agentSessionKey,
-            sessionId: options?.sessionId,
-            storePath,
-            runId: options?.runId,
-            activePlanRef: options?.activePlanRef,
-            persistSessionPlan: options?.persistSessionPlan,
-          }),
-        ]
-      : []),
+    ...(includeUpdatePlanTool ? [createUpdatePlanTool()] : []),
     createSessionsListTool({
       agentSessionKey: options?.agentSessionKey,
       sandboxed: options?.sandboxed,

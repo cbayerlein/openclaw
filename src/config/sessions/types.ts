@@ -147,19 +147,6 @@ export type SubagentRecoveryState = {
   wedgedReason?: string;
 };
 
-export type SessionActivePlanStatus = "pending" | "in_progress" | "completed";
-
-export type SessionActivePlanStep = {
-  step: string;
-  status: SessionActivePlanStatus;
-};
-
-export type SessionActivePlan = {
-  explanation?: string;
-  updatedAt: number;
-  steps: SessionActivePlanStep[];
-};
-
 export type SessionEntry = {
   /**
    * Last delivered heartbeat payload (used to suppress duplicate heartbeat notifications).
@@ -344,7 +331,6 @@ export type SessionEntry = {
    */
   pluginDebugEntries?: SessionPluginDebugEntry[];
   acp?: SessionAcpMeta;
-  activePlan?: SessionActivePlan;
 };
 
 function isSessionPluginTraceLine(line: string): boolean {
