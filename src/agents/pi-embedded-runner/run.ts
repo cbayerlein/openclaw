@@ -6,12 +6,11 @@ import type { ThinkLevel } from "../../auto-reply/thinking.js";
 import { SILENT_REPLY_TOKEN } from "../../auto-reply/tokens.js";
 import { ensureContextEnginesInitialized } from "../../context-engine/init.js";
 import { resolveContextEngine } from "../../context-engine/registry.js";
-import { emitAgentEvent, emitAgentPlanEvent } from "../../infra/agent-events.js";
+import { emitAgentPlanEvent } from "../../infra/agent-events.js";
 import { sleepWithAbort } from "../../infra/backoff.js";
 import { freezeDiagnosticTraceContext } from "../../infra/diagnostic-trace-context.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { routeRuntimeWarning } from "../../infra/runtime-warnings.js";
-import { enqueueSystemEvent } from "../../infra/system-events.js";
 import { buildAgentHookContextChannelFields } from "../../plugins/hook-agent-context.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { resolveProviderAuthProfileId } from "../../plugins/provider-runtime.js";
@@ -48,7 +47,6 @@ import {
   FailoverError,
   resolveFailoverStatus,
 } from "../failover-error.js";
-import { getPlanCompletionAdvisoryMessage, shouldWarnAboutPlanCompletion } from "../guardrails.js";
 import { selectAgentHarness } from "../harness/selection.js";
 import { LiveSessionModelSwitchError } from "../live-model-switch-error.js";
 import { shouldSwitchToLiveModel, clearLiveModelSwitchPending } from "../live-model-switch.js";
@@ -2821,26 +2819,6 @@ export async function runEmbeddedPiAgent(
           log.debug(
             `embedded run done: runId=${params.runId} sessionId=${params.sessionId} durationMs=${Date.now() - started} aborted=${aborted}`,
           );
-          if (
-            !aborted &&
-            payloads.length > 0 &&
-            shouldWarnAboutPlanCompletion(attempt.activePlan)
-          ) {
-            const advisory = getPlanCompletionAdvisoryMessage();
-            emitAgentEvent({
-              runId: params.runId,
-              sessionKey: params.sessionKey,
-              stream: "guardrail",
-              data: {
-                event: "plan_completion_advisory",
-                message: advisory,
-                activePlan: attempt.activePlan,
-              },
-            });
-            if (params.sessionKey) {
-              enqueueSystemEvent(advisory, { sessionKey: params.sessionKey });
-            }
-          }
           if (lastProfileId) {
             await markAuthProfileGood({
               store: authStore,

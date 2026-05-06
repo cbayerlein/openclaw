@@ -3,10 +3,7 @@ import type { Api, AssistantMessage, Model } from "@mariozechner/pi-ai";
 import type { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
 import type { HeartbeatToolResponse } from "../../../auto-reply/heartbeat-tool-response.js";
 import type { ThinkLevel } from "../../../auto-reply/thinking.js";
-import type {
-  SessionActivePlan,
-  SessionSystemPromptReport,
-} from "../../../config/sessions/types.js";
+import type { SessionSystemPromptReport } from "../../../config/sessions/types.js";
 import type { ContextEngine, ContextEnginePromptCacheInfo } from "../../../context-engine/types.js";
 import type { DiagnosticTraceContext } from "../../../infra/diagnostic-trace-context.js";
 import type { PluginHookBeforeAgentStartResult } from "../../../plugins/hook-before-agent-start.types.js";
@@ -126,7 +123,6 @@ export type EmbeddedRunAttemptResult = {
    * keep their meaning. When set, the array always has at least one entry.
    */
   clientToolCalls?: Array<{ name: string; params: Record<string, unknown> }>;
-  activePlan?: SessionActivePlan;
   /** True when sessions_yield tool was called during this attempt. */
   yieldDetected?: boolean;
   replayMetadata: EmbeddedRunReplayMetadata;

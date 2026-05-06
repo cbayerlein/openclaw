@@ -523,7 +523,7 @@ export function createOpenClawTools(
   const effectiveCallGateway = embedded
     ? createEmbeddedCallGateway()
     : openClawToolsDeps.callGateway;
-  const updatePlanEnabled =
+  const includeUpdatePlanTool =
     isToolExplicitlyAllowedByFactoryPolicy({
       toolName: "update_plan",
       allowlist: mergeFactoryPolicyList(resolvedConfig?.tools?.allow, options?.pluginToolAllowlist),
@@ -536,18 +536,7 @@ export function createOpenClawTools(
       modelProvider: options?.modelProvider,
       modelId: options?.modelId,
     });
-  const updatePlanTool = updatePlanEnabled
-    ? createUpdatePlanTool({
-        sessionKey: options?.agentSessionKey,
-        sessionId: options?.sessionId,
-        storePath,
-        runId: options?.runId,
-        activePlanRef: options?.activePlanRef,
-        persistSessionPlan: options?.persistSessionPlan,
-      })
-    : null;
   const tools: AnyAgentTool[] = [
-    ...(updatePlanTool ? [updatePlanTool] : []),
     ...(embedded
       ? []
       : [
@@ -587,6 +576,18 @@ export function createOpenClawTools(
       agentSessionKey: options?.agentSessionKey,
       requesterAgentIdOverride: options?.requesterAgentIdOverride,
     }),
+    ...(includeUpdatePlanTool
+      ? [
+          createUpdatePlanTool({
+            sessionKey: options?.agentSessionKey,
+            sessionId: options?.sessionId,
+            storePath,
+            runId: options?.runId,
+            activePlanRef: options?.activePlanRef,
+            persistSessionPlan: options?.persistSessionPlan,
+          }),
+        ]
+      : []),
     createSessionsListTool({
       agentSessionKey: options?.agentSessionKey,
       sandboxed: options?.sandboxed,
