@@ -308,6 +308,7 @@ export function resolveSession(opts: {
   sessionKey?: string;
   agentId?: string;
   clone?: boolean;
+  forceNewSession?: boolean;
 }): SessionResolution {
   const sessionCfg = opts.cfg.session;
   const { sessionKey, sessionStore, storePath } = resolveSessionKeyForRequest({
@@ -320,7 +321,9 @@ export function resolveSession(opts: {
   });
   const now = Date.now();
 
-  const sessionEntry = sessionKey ? sessionStore[sessionKey] : undefined;
+  const existingSessionEntry = sessionKey ? sessionStore[sessionKey] : undefined;
+  const forceNewSession = opts.forceNewSession === true;
+  const sessionEntry = forceNewSession ? undefined : existingSessionEntry;
 
   const resetType = resolveSessionResetType({ sessionKey });
   const channelReset = resolveChannelResetConfig({
@@ -344,9 +347,12 @@ export function resolveSession(opts: {
         policy: resetPolicy,
       }).fresh
     : false;
-  const sessionId =
-    opts.sessionId?.trim() || (fresh ? sessionEntry?.sessionId : undefined) || crypto.randomUUID();
-  const isNewSession = !fresh && !opts.sessionId;
+  const sessionId = forceNewSession
+    ? crypto.randomUUID()
+    : opts.sessionId?.trim() ||
+      (fresh ? sessionEntry?.sessionId : undefined) ||
+      crypto.randomUUID();
+  const isNewSession = forceNewSession || (!fresh && !opts.sessionId);
 
   clearBootstrapSnapshotOnSessionRollover({
     sessionKey,

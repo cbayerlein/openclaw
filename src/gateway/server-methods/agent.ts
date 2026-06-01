@@ -823,6 +823,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       replyTo?: string;
       sessionId?: string;
       sessionKey?: string;
+      newSession?: boolean;
       thinking?: string;
       deliver?: boolean;
       attachments?: Array<{
@@ -855,6 +856,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       disableMessageTool?: boolean;
       timeout?: number;
       bestEffortDeliver?: boolean;
+      persistModel?: boolean;
       cleanupBundleMcpOnRunEnd?: boolean;
       label?: string;
       inputProvenance?: InputProvenance;
@@ -865,6 +867,22 @@ export const agentHandlers: GatewayRequestHandlers = {
     const canResetSession = resolveCanResetSessionFromClient(client);
     const canUseInternalRuntimeHandoff = resolveCanUseInternalRuntimeHandoff(client);
     const requestedModelOverride = Boolean(request.provider || request.model);
+    if (request.newSession === true && normalizeOptionalString(request.sessionId)) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "newSession cannot be combined with sessionId."),
+      );
+      return;
+    }
+    if (request.persistModel === true && !normalizeOptionalString(request.model)) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "persistModel requires model."),
+      );
+      return;
+    }
     const requestedInternalSessionEffects = request.sessionEffects === "internal";
     const requestedPromptPersistenceSuppression = request.suppressPromptPersistence === true;
     const isRawModelRun = request.modelRun === true || request.promptMode === "none";
@@ -1387,18 +1405,21 @@ export const agentHandlers: GatewayRequestHandlers = {
             failedSessionTranscriptMissing = true;
           }
         }
+        const forceNewSession = request.newSession === true;
         const canReuseSession =
+          !forceNewSession &&
           Boolean(entry?.sessionId) &&
           (freshness?.fresh ?? false) &&
           !failedSessionTranscriptMissing;
         const usableRequestedSessionId =
-          requestedSessionId && (!entry?.sessionId || canReuseSession)
+          !forceNewSession && requestedSessionId && (!entry?.sessionId || canReuseSession)
             ? requestedSessionId
             : undefined;
         const sessionId = usableRequestedSessionId
           ? usableRequestedSessionId
           : ((canReuseSession ? entry?.sessionId : undefined) ?? randomUUID());
         isNewSession =
+          forceNewSession ||
           !entry ||
           (!canReuseSession && !usableRequestedSessionId) ||
           Boolean(usableRequestedSessionId && entry?.sessionId !== usableRequestedSessionId);
@@ -2085,9 +2106,11 @@ export const agentHandlers: GatewayRequestHandlers = {
               agentId: ingressAgentId,
               provider: providerOverride,
               model: modelOverride,
+              persistModel: request.persistModel,
               to: resolvedTo,
               sessionId: resolvedSessionId,
               sessionKey: resolvedSessionKey,
+              newSession: request.newSession,
               thinking: request.thinking,
               deliver,
               deliveryTargetMode,

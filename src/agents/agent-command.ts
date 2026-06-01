@@ -432,6 +432,7 @@ async function prepareAgentCommandExecution(opts: AgentCommandOpts, runtime: Run
     sessionKey: explicitSessionKey,
     agentId: agentIdOverride,
     clone: false,
+    forceNewSession: opts.newSession === true,
   });
 
   const { sessionId, sessionKey, storePath, isNewSession, persistedThinking, persistedVerbose } =
@@ -918,6 +919,9 @@ async function agentCommandInternal(
     if (hasExplicitRunOverride && opts.allowModelOverride !== true) {
       throw new Error("Model override is not authorized for this caller.");
     }
+    if (opts.persistModel === true && !hasExplicitRunOverride) {
+      throw new Error("Persisting a model override requires a model override.");
+    }
     const needsModelCatalog = Boolean(hasAllowlist);
     let allowedModelCatalog: ReturnType<typeof loadManifestModelCatalog> = [];
     let modelCatalog: ReturnType<typeof loadManifestModelCatalog> | null = null;
@@ -1043,6 +1047,53 @@ async function agentCommandInternal(
       }
       provider = explicitRef.provider;
       model = explicitRef.model;
+      if (
+        opts.persistModel === true &&
+        sessionStore &&
+        sessionKey &&
+        !suppressVisibleSessionEffects
+      ) {
+        const now = Date.now();
+        const next = {
+          ...(sessionEntry ?? { sessionId, sessionStartedAt: now }),
+          sessionId,
+          updatedAt: now,
+        };
+        const normalizedDefaultRef = normalizeModelRef(
+          defaultProvider,
+          defaultModel,
+          modelManifestContext,
+        );
+        const normalizedExplicitRef = normalizeModelRef(
+          explicitRef.provider,
+          explicitRef.model,
+          modelManifestContext,
+        );
+        const { updated } = applyModelOverrideToSessionEntry({
+          entry: next,
+          selection:
+            normalizedExplicitRef.provider === normalizedDefaultRef.provider &&
+            normalizedExplicitRef.model === normalizedDefaultRef.model
+              ? {
+                  provider: normalizedDefaultRef.provider,
+                  model: normalizedDefaultRef.model,
+                  isDefault: true,
+                }
+              : {
+                  provider: normalizedExplicitRef.provider,
+                  model: normalizedExplicitRef.model,
+                },
+        });
+        if (updated) {
+          await persistSessionEntry({
+            sessionStore,
+            sessionKey,
+            storePath,
+            entry: next,
+          });
+          sessionEntry = next;
+        }
+      }
     }
     const allowedInitialSelection = visibilityPolicy.resolveSelection({
       provider,

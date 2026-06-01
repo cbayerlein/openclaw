@@ -29,6 +29,8 @@ Related:
 - `--session-id <id>`: explicit session id
 - `--agent <id>`: agent id; overrides routing bindings
 - `--model <id>`: model override for this run (`provider/model` or model id)
+- `--persist-model`: persist the explicit `--model` override on the resolved session
+- `--new-session`: force a fresh session instead of reusing the current session entry
 - `--thinking <level>`: agent thinking level (`off`, `minimal`, `low`, `medium`, `high`, plus provider-supported custom levels such as `xhigh`, `adaptive`, or `max`)
 - `--verbose <on|off>`: persist verbose level for the session
 - `--channel <channel>`: delivery channel; omit to use the main session channel
@@ -45,9 +47,10 @@ Related:
 ```bash
 openclaw agent --to +15555550123 --message "status update" --deliver
 openclaw agent --agent ops --message "Summarize logs"
-openclaw agent --agent ops --model openai/gpt-5.4 --message "Summarize logs"
+openclaw agent --agent ops --model openai/gpt-5.4 --persist-model --message "Summarize logs"
 openclaw agent --session-key agent:ops:incident-42 --message "Summarize status"
 openclaw agent --agent ops --session-key incident-42 --message "Summarize status"
+openclaw agent --agent ops --session-key incident-42 --new-session --message "Start clean"
 openclaw agent --session-id 1234 --message "Summarize inbox" --thinking medium
 openclaw agent --to +15555550123 --message "Trace logs" --verbose on --json
 openclaw agent --agent ops --message "Generate report" --deliver --reply-channel slack --reply-to "#reports"
@@ -62,6 +65,8 @@ openclaw agent --agent ops --message "Run locally" --local
 - Gateway-backed runs leave Gateway-owned MCP loopback resources under the running Gateway process; older clients may still send the historical cleanup flag, but the Gateway accepts it as a compatibility no-op.
 - `--channel`, `--reply-channel`, and `--reply-account` affect reply delivery, not session routing.
 - `--session-key` selects an explicit session key. Agent-prefixed keys must use `agent:<agent-id>:<session-key>`, and `--agent` must match the key's agent id when both are provided. Bare non-sentinel keys are scoped to `--agent` when supplied, or to the configured default agent otherwise; for example, `--agent ops --session-key incident-42` routes to `agent:ops:incident-42`. Literal `global` and `unknown` remain unscoped only when no `--agent` is supplied; in that case, embedded fallback and store ownership use the configured default agent.
+- `--new-session` creates a fresh transcript for the selected route and cannot be combined with `--session-id`.
+- `--persist-model` requires an explicit `--model`; it updates the selected session's runtime model so later session-id-only runs keep using that model.
 - `--json` keeps stdout reserved for the JSON response. Gateway, plugin, and embedded-fallback diagnostics are routed to stderr so scripts can parse stdout directly.
 - Embedded fallback JSON includes `meta.transport: "embedded"` and `meta.fallbackFrom: "gateway"` so scripts can distinguish fallback runs from Gateway runs.
 - If the Gateway accepts an agent run but the CLI times out waiting for the final reply, embedded fallback uses a fresh explicit `gateway-fallback-*` session/run id and reports `meta.fallbackReason: "gateway_timeout"` plus the fallback session fields. This avoids racing the Gateway-owned transcript lock or silently replacing the original routed conversation session.

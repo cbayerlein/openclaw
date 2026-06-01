@@ -63,6 +63,7 @@ type AgentCliOpts = {
   to?: string;
   sessionId?: string;
   sessionKey?: string;
+  newSession?: boolean;
   thinking?: string;
   verbose?: string;
   json?: boolean;
@@ -76,6 +77,7 @@ type AgentCliOpts = {
   lane?: string;
   runId?: string;
   extraSystemPrompt?: string;
+  persistModel?: boolean;
   local?: boolean;
 };
 
@@ -134,6 +136,15 @@ export const agentViaGatewayTesting = {
 function protectJsonStdout(opts: Pick<AgentCliOpts, "json">): void {
   if (opts.json === true) {
     routeLogsToStderr();
+  }
+}
+
+function validateAgentCliOpts(opts: AgentCliOpts): void {
+  if (opts.newSession === true && normalizeOptionalString(opts.sessionId)) {
+    throw new Error("--new-session cannot be combined with --session-id");
+  }
+  if (opts.persistModel === true && !normalizeOptionalString(opts.model)) {
+    throw new Error("--persist-model requires --model");
   }
 }
 
@@ -631,10 +642,12 @@ async function agentViaGatewayCommand(
             message: body,
             agentId,
             model: modelOverride,
+            persistModel: opts.persistModel,
             to: opts.to,
             replyTo: opts.replyTo,
             sessionId: opts.sessionId,
             sessionKey,
+            newSession: opts.newSession,
             thinking: opts.thinking,
             deliver: Boolean(opts.deliver),
             channel,
@@ -751,6 +764,7 @@ export async function agentCliCommand(
   deps?: AgentCliDeps,
 ) {
   protectJsonStdout(opts);
+  validateAgentCliOpts(opts);
   const dispatchOpts = normalizeSessionKeyOptsForDispatch(opts);
   validateExplicitSessionKeyForDispatch(dispatchOpts);
   const gatewayDispatchOpts = dispatchOpts.runId

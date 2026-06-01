@@ -1013,6 +1013,8 @@ describe("gateway agent handler", () => {
         sessionKey: "agent:main:main",
         provider: "anthropic",
         model: "claude-haiku-4-5",
+        persistModel: true,
+        newSession: true,
         idempotencyKey: "test-idem-model-override",
       },
       {
@@ -1028,7 +1030,54 @@ describe("gateway agent handler", () => {
     expectRecordFields(await waitForAgentCommandCall(), {
       provider: "anthropic",
       model: "claude-haiku-4-5",
+      persistModel: true,
+      newSession: true,
     });
+  });
+
+  it("rejects incompatible agent control options", async () => {
+    primeMainAgentRun();
+    mocks.agentCommand.mockClear();
+
+    const newSessionRespond = vi.fn();
+    await invokeAgent(
+      {
+        message: "test new session",
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        sessionId: "fixed-session",
+        newSession: true,
+        idempotencyKey: "test-new-session-session-id",
+      },
+      {
+        reqId: "test-new-session-session-id",
+        respond: newSessionRespond,
+      },
+    );
+
+    expectRespondError(newSessionRespond, {
+      message: "newSession cannot be combined with sessionId.",
+    });
+
+    const persistModelRespond = vi.fn();
+    await invokeAgent(
+      {
+        message: "test persist model",
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        persistModel: true,
+        idempotencyKey: "test-persist-model-no-model",
+      },
+      {
+        reqId: "test-persist-model-no-model",
+        respond: persistModelRespond,
+      },
+    );
+
+    expectRespondError(persistModelRespond, {
+      message: "persistModel requires model.",
+    });
+    expect(mocks.agentCommand).not.toHaveBeenCalled();
   });
 
   it("forwards explicit ACP turn source markers", async () => {

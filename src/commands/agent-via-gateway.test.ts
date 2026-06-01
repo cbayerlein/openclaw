@@ -1163,7 +1163,16 @@ describe("agentCliCommand", () => {
     await withTempStore(async () => {
       mockGatewaySuccessReply();
 
-      await agentCliCommand({ message: "hi", to: "+1555", model: "ollama/qwen3.5:9b" }, runtime);
+      await agentCliCommand(
+        {
+          message: "hi",
+          to: "+1555",
+          model: "ollama/qwen3.5:9b",
+          persistModel: true,
+          newSession: true,
+        },
+        runtime,
+      );
 
       expect(callGateway).toHaveBeenCalledTimes(1);
       const request = requireRecord(requireFirstCallArg(callGateway, "gateway"), "gateway request");
@@ -1172,6 +1181,30 @@ describe("agentCliCommand", () => {
       expect(request.scopes).toEqual(["operator.admin"]);
       const params = requireRecord(request.params, "gateway request params");
       expect(params.model).toBe("ollama/qwen3.5:9b");
+      expect(params.persistModel).toBe(true);
+      expect(params.newSession).toBe(true);
+    });
+  });
+
+  it("rejects incompatible agent control options before gateway dispatch", async () => {
+    await withTempStore(async () => {
+      await expect(
+        agentCliCommand(
+          {
+            message: "hi",
+            to: "+1555",
+            sessionId: "fixed-session",
+            newSession: true,
+          },
+          runtime,
+        ),
+      ).rejects.toThrow("--new-session cannot be combined with --session-id");
+
+      await expect(
+        agentCliCommand({ message: "hi", to: "+1555", persistModel: true }, runtime),
+      ).rejects.toThrow("--persist-model requires --model");
+
+      expect(callGateway).not.toHaveBeenCalled();
     });
   });
 

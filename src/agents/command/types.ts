@@ -54,9 +54,13 @@ export type AgentCommandOpts = {
   provider?: string;
   /** Per-run model override. */
   model?: string;
+  /** Persist an explicit model override as the selected model for this session. */
+  persistModel?: boolean;
   to?: string;
   sessionId?: string;
   sessionKey?: string;
+  /** Force a fresh runtime session even when the session store has a reusable id. */
+  newSession?: boolean;
   thinking?: string;
   thinkingOnce?: string;
   verbose?: string;

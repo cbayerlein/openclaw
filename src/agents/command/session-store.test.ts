@@ -753,6 +753,43 @@ describe("updateSessionStoreAfterAgentRun", () => {
     });
   });
 
+  it("forces a fresh session without reusing the current store entry", async () => {
+    await withTempSessionStore(async ({ storePath }) => {
+      const sessionKey = "agent:main:explicit:fresh-session";
+      const existingSessionId = "fresh-session-old";
+      await fs.writeFile(
+        storePath,
+        JSON.stringify(
+          {
+            [sessionKey]: {
+              sessionId: existingSessionId,
+              updatedAt: Date.now(),
+              thinkingLevel: "high",
+            },
+          },
+          null,
+          2,
+        ),
+      );
+
+      const result = resolveSession({
+        cfg: {
+          session: {
+            store: storePath,
+            mainKey: "main",
+          },
+        } as OpenClawConfig,
+        sessionKey,
+        forceNewSession: true,
+      });
+
+      expect(result.isNewSession).toBe(true);
+      expect(result.sessionId).not.toBe(existingSessionId);
+      expect(result.sessionEntry).toBeUndefined();
+      expect(result.persistedThinking).toBeUndefined();
+    });
+  });
+
   it("preserves previous totalTokens when provider returns no usage data (#67667)", async () => {
     await withTempSessionStore(async ({ storePath }) => {
       const cfg = {} as OpenClawConfig;
