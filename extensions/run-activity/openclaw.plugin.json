@@ -1,0 +1,14 @@
+{
+  "id": "run-activity",
+  "enabledByDefault": true,
+  "activation": {
+    "onStartup": true
+  },
+  "name": "Run Activity",
+  "description": "Persists a chronological, plugin-owned activity timeline for agent runs.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

@@ -2524,6 +2524,7 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Plugins/run-activity: add a bundled Run Activity plugin that persists chronological agent-run activity, exposes `runActivity.list`, `runActivity.get`, `runActivity.events`, and legacy-compatible `runs.*` gateway methods, and backfills available thinking items from session transcripts.
 - Gateway/Windows: bind the default loopback gateway listener only to `127.0.0.1` on Windows so libuv's dual-stack `::1` behavior cannot wedge localhost HTTP requests. (#69701, fixes #69674) Thanks @SARAMALI15792.
 - Plugins/migration: emit catalog-backed install hints when `plugins.entries` or `plugins.allow` references an official external plugin that is not installed, so upgraded configs point operators to `openclaw plugins install <spec>` instead of telling them to remove valid plugin config. (#77483) Thanks @hclsys.
 - OpenAI/Codex media: advertise Codex audio transcription in runtime and manifest metadata and route active Codex chat models to the OpenAI transcription default instead of sending chat model ids to audio transcription. Thanks @vincentkoc.

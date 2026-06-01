@@ -1,0 +1,15 @@
+{
+  "name": "@openclaw/run-activity",
+  "version": "2026.5.28",
+  "private": true,
+  "description": "OpenClaw run activity timeline plugin",
+  "type": "module",
+  "devDependencies": {
+    "@openclaw/plugin-sdk": "workspace:*"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
