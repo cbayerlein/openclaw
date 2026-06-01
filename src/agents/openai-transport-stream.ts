@@ -1077,6 +1077,20 @@ function convertResponsesMessages(
     });
   }
   let msgIndex = 0;
+  const assistantMessageIdUseCount = new Map<string, number>();
+  const allocateAssistantMessageId = (candidate?: string) => {
+    if (!candidate) {
+      return undefined;
+    }
+    const seen = assistantMessageIdUseCount.get(candidate) ?? 0;
+    assistantMessageIdUseCount.set(candidate, seen + 1);
+    if (seen === 0) {
+      return candidate;
+    }
+    const suffix = `_${seen + 1}`;
+    const trimmedBase = candidate.slice(0, Math.max(0, 64 - suffix.length));
+    return `${trimmedBase}${suffix}`;
+  };
   for (const msg of transformedMessages) {
     if (msg.role === "user") {
       if (typeof msg.content === "string") {
@@ -1104,8 +1118,35 @@ function convertResponsesMessages(
       const output: ResponseInput = [];
       const isDifferentModel =
         msg.model !== model.id && msg.provider === model.provider && msg.api === model.api;
+      let pendingText: {
+        id?: string;
+        phase?: ReplayableResponseOutputMessage["phase"];
+        parts: string[];
+      } | null = null;
+      const flushPendingText = () => {
+        if (!pendingText || pendingText.parts.length === 0) {
+          pendingText = null;
+          return;
+        }
+        output.push({
+          type: "message",
+          role: "assistant",
+          content: [
+            {
+              type: "output_text",
+              text: sanitizeTransportPayloadText(pendingText.parts.join("")),
+              annotations: [],
+            },
+          ],
+          status: "completed",
+          ...(pendingText.id ? { id: allocateAssistantMessageId(pendingText.id) } : {}),
+          phase: pendingText.phase,
+        } as ResponseInputItem);
+        pendingText = null;
+      };
       for (const block of msg.content) {
         if (block.type === "thinking") {
+          flushPendingText();
           if (
             shouldReplayReasoningItems &&
             block.thinkingSignature &&
@@ -1143,22 +1184,15 @@ function convertResponsesMessages(
             ? (textSignature?.id ?? `msg_${msgIndex}`)
             : undefined;
           msgId = normalizeResponsesReplayItemId(msgId, "msg");
-          const messageItem: ReplayableResponseOutputMessage = {
-            type: "message",
-            role: "assistant",
-            content: [
-              {
-                type: "output_text",
-                text: sanitizeTransportPayloadText(block.text),
-                annotations: [],
-              },
-            ],
-            status: "completed",
-            ...(msgId ? { id: msgId } : {}),
-            phase: textSignature?.phase,
-          };
-          output.push(messageItem as ResponseInputItem);
+          const phase = textSignature?.phase;
+          if (pendingText && pendingText.id === msgId && pendingText.phase === phase) {
+            pendingText.parts.push(block.text);
+          } else {
+            flushPendingText();
+            pendingText = { id: msgId, phase, parts: [block.text] };
+          }
         } else if (block.type === "toolCall") {
+          flushPendingText();
           const [callId, itemIdRaw] = block.id.split("|");
           const itemId =
             shouldReplayResponsesItemIds && !(isDifferentModel && itemIdRaw?.startsWith("fc_"))
@@ -1176,6 +1210,7 @@ function convertResponsesMessages(
           });
         }
       }
+      flushPendingText();
       if (output.length > 0) {
         messages.push(...output);
       }
@@ -1940,6 +1975,8 @@ function isNativeOpenAICodexResponsesBaseUrl(baseUrl?: string): boolean {
       "/backend-api/v1",
       "/backend-api/codex",
       "/backend-api/codex/v1",
+      "/backend-api/codex/responses",
+      "/backend-api/codex/v1/responses",
     ].includes(pathname);
   } catch {
     return false;

@@ -2613,14 +2613,18 @@ describe("openai transport stream", () => {
     expect(sanitized).toEqual(payload);
   });
 
-  it("omits native Codex replay item ids and unproven encrypted reasoning", () => {
+  it.each([
+    "https://chatgpt.com/backend-api",
+    "https://chatgpt.com/backend-api/codex/responses",
+    "https://chatgpt.com/backend-api/codex/v1/responses/",
+  ])("omits native Codex replay item ids and unproven encrypted reasoning (%s)", (baseUrl) => {
     const params = buildOpenAIResponsesParams(
       {
         id: "gpt-5.4",
         name: "GPT-5.4",
         api: "openai-codex-responses",
         provider: "openai-codex",
-        baseUrl: "https://chatgpt.com/backend-api",
+        baseUrl,
         reasoning: true,
         input: ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -3684,6 +3688,63 @@ describe("openai transport stream", () => {
     } else {
       expect(assistantItem?.id).toBe("msg_commentary");
     }
+  });
+
+  it("merges adjacent assistant text blocks that share the same replay id", () => {
+    const params = buildOpenAIResponsesParams(
+      {
+        id: "gpt-5.4",
+        name: "GPT-5.4",
+        api: "openai-responses",
+        provider: "openai",
+        baseUrl: "https://api.openai.com/v1",
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 200000,
+        maxTokens: 8192,
+      } satisfies Model<"openai-responses">,
+      {
+        systemPrompt: "system",
+        messages: [
+          {
+            role: "assistant",
+            api: "openai-responses",
+            provider: "openai",
+            model: "gpt-5.4",
+            usage: {},
+            stopReason: "stop",
+            timestamp: 1,
+            content: [
+              {
+                type: "text",
+                text: "Hello, ",
+                textSignature: JSON.stringify({ v: 1, id: "msg_166", phase: "final_answer" }),
+              },
+              {
+                type: "text",
+                text: "world!",
+                textSignature: JSON.stringify({ v: 1, id: "msg_166", phase: "final_answer" }),
+              },
+            ],
+          },
+        ],
+        tools: [],
+      } as never,
+      undefined,
+    ) as {
+      input?: Array<{ role?: string; id?: string; phase?: string; content?: unknown }>;
+    };
+
+    const assistantItems = params.input?.filter((item) => item.role === "assistant") ?? [];
+    expect(assistantItems).toHaveLength(1);
+    expect(assistantItems[0]).toMatchObject({
+      id: "msg_166",
+      phase: "final_answer",
+    });
+    expect(assistantItems[0]?.content).toEqual([
+      { type: "output_text", text: "Hello, world!", annotations: [] },
+    ]);
   });
 
   it("strips the internal cache boundary from OpenAI system prompts", () => {
