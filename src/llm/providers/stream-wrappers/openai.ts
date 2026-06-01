@@ -496,7 +496,7 @@ export function createOpenAIThinkingLevelWrapper(
         thinkingLevel,
       });
       if (existingReasoning === "none") {
-        payloadObj.reasoning = { effort: reasoningEffort };
+        payloadObj.reasoning = { effort: reasoningEffort, summary: "detailed" };
         return;
       }
       if (
@@ -504,7 +504,11 @@ export function createOpenAIThinkingLevelWrapper(
         typeof existingReasoning === "object" &&
         !Array.isArray(existingReasoning)
       ) {
-        (existingReasoning as Record<string, unknown>).effort = reasoningEffort;
+        const reasoningPayload = existingReasoning as Record<string, unknown>;
+        reasoningPayload.effort = reasoningEffort;
+        if (reasoningPayload.summary === undefined || reasoningPayload.summary === "auto") {
+          reasoningPayload.summary = "detailed";
+        }
         raiseMinimalReasoningForResponsesWebSearchPayload({ model, payloadObj });
       }
     });

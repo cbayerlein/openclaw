@@ -118,7 +118,7 @@ describe("transport params runtime contract (embedded OpenClaw/OpenAI path)", ()
       payload: { reasoning: { effort: "none", summary: "auto" } },
     });
 
-    expect(payload.reasoning).toEqual({ effort: "high", summary: "auto" });
+    expect(payload.reasoning).toEqual({ effort: "high", summary: "detailed" });
   });
 
   it("composes provider preparation before transport patch resolution", () => {

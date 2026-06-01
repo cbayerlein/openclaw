@@ -338,7 +338,7 @@ describe("createOpenAIThinkingLevelWrapper", () => {
     const wrapped = createOpenAIThinkingLevelWrapper(baseStreamFn, "medium");
     void wrapped(codexModel, { messages: [] }, {});
 
-    expect(payloads[0]?.reasoning).toEqual({ effort: "medium" });
+    expect(payloads[0]?.reasoning).toEqual({ effort: "medium", summary: "detailed" });
   });
 
   it("overrides effort on reasoning-capable model when thinkingLevel is high", () => {
@@ -348,7 +348,7 @@ describe("createOpenAIThinkingLevelWrapper", () => {
     const wrapped = createOpenAIThinkingLevelWrapper(baseStreamFn, "high");
     void wrapped(openaiModel, { messages: [] }, {});
 
-    expect(payloads[0]?.reasoning).toEqual({ effort: "high" });
+    expect(payloads[0]?.reasoning).toEqual({ effort: "high", summary: "detailed" });
   });
 
   it("removes reasoning when thinkingLevel is off on reasoning-capable model", () => {
@@ -368,7 +368,7 @@ describe("createOpenAIThinkingLevelWrapper", () => {
     const wrapped = createOpenAIThinkingLevelWrapper(baseStreamFn, "adaptive");
     void wrapped(codexModel, { messages: [] }, {});
 
-    expect(payloads[0]?.reasoning).toEqual({ effort: "medium" });
+    expect(payloads[0]?.reasoning).toEqual({ effort: "medium", summary: "detailed" });
   });
 
   it("replaces string disabled reasoning when thinkingLevel is enabled", () => {
@@ -376,7 +376,7 @@ describe("createOpenAIThinkingLevelWrapper", () => {
     const wrapped = createOpenAIThinkingLevelWrapper(baseStreamFn, "low");
     void wrapped(codexModel, { messages: [] }, {});
 
-    expect(payloads[0]?.reasoning).toEqual({ effort: "low" });
+    expect(payloads[0]?.reasoning).toEqual({ effort: "low", summary: "detailed" });
   });
 
   it("does not add reasoning for non-reasoning models without existing reasoning payload", () => {
@@ -394,7 +394,7 @@ describe("createOpenAIThinkingLevelWrapper", () => {
     const wrapped = createOpenAIThinkingLevelWrapper(baseStreamFn, "medium");
     void wrapped(codexModel, { messages: [] }, {});
 
-    expect(payloads[0]?.reasoning).toEqual({ effort: "medium" });
+    expect(payloads[0]?.reasoning).toEqual({ effort: "medium", summary: "detailed" });
   });
 
   it("returns underlying streamFn unchanged when thinkingLevel is undefined", () => {
@@ -403,14 +403,24 @@ describe("createOpenAIThinkingLevelWrapper", () => {
     expect(wrapped).toBe(baseStreamFn);
   });
 
-  it("preserves other reasoning properties when overriding effort", () => {
+  it("requests detailed summaries when overriding auto reasoning summaries", () => {
     const { baseStreamFn, payloads } = createPayloadCapture({
       initialReasoning: { effort: "none", summary: "auto" },
     });
     const wrapped = createOpenAIThinkingLevelWrapper(baseStreamFn, "high");
     void wrapped(codexModel, { messages: [] }, {});
 
-    expect(payloads[0]?.reasoning).toEqual({ effort: "high", summary: "auto" });
+    expect(payloads[0]?.reasoning).toEqual({ effort: "high", summary: "detailed" });
+  });
+
+  it("preserves explicit non-auto reasoning summaries when overriding effort", () => {
+    const { baseStreamFn, payloads } = createPayloadCapture({
+      initialReasoning: { effort: "none", summary: "concise" },
+    });
+    const wrapped = createOpenAIThinkingLevelWrapper(baseStreamFn, "high");
+    void wrapped(codexModel, { messages: [] }, {});
+
+    expect(payloads[0]?.reasoning).toEqual({ effort: "high", summary: "concise" });
   });
 
   it("does not inject reasoning for completions API on proxy routes", () => {
@@ -455,7 +465,7 @@ describe("createOpenAIThinkingLevelWrapper", () => {
       });
       const wrapped = createOpenAIThinkingLevelWrapper(baseStreamFn, level);
       void wrapped(codexModel, { messages: [] }, {});
-      expect(payloads[0]?.reasoning).toEqual({ effort: level });
+      expect(payloads[0]?.reasoning).toEqual({ effort: level, summary: "detailed" });
     }
   });
 
@@ -503,7 +513,7 @@ describe("createOpenAIThinkingLevelWrapper", () => {
     const wrapped = createOpenAIThinkingLevelWrapper(baseStreamFn, "xhigh");
     void wrapped(model as Model<typeof model.api>, { messages: [] }, {});
 
-    expect(payloads[0]?.reasoning).toEqual({ effort: "xhigh" });
+    expect(payloads[0]?.reasoning).toEqual({ effort: "xhigh", summary: "detailed" });
   });
 });
 
