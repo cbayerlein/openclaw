@@ -78,6 +78,7 @@ import {
 } from "./materialize.js";
 import { applyMergePatch } from "./merge-patch.js";
 import { assertConfigWriteAllowedInCurrentMode } from "./nix-mode-write-guard.js";
+import { applyOperationalAlertsEnvOverrides } from "./operational-alerts-runtime.js";
 import { resolveConfigPath, resolveIncludeRoots, resolveStateDir } from "./paths.js";
 import {
   extractShippedPluginInstallConfigRecords,
@@ -1395,7 +1396,9 @@ export function createConfigIO(
       },
     });
 
-    return applyConfigOverrides(cfgWithOwnerDisplaySecret);
+    return applyConfigOverrides(
+      applyOperationalAlertsEnvOverrides(cfgWithOwnerDisplaySecret, deps.env),
+    );
   }
 
   function captureFileSnapshotSync(filePath: string):

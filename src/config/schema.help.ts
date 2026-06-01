@@ -1949,6 +1949,30 @@ export const FIELD_HELP: Record<string, string> = {
     "Map provider -> channel id -> model override (values are provider/model or aliases).",
   "messages.suppressToolErrors":
     "When true, suppress ⚠️ tool-error warnings from being shown to the user. The agent already sees errors in context and can retry. Default: false.",
+  "messages.operationalAlerts":
+    "Routes runtime warnings such as tool failures to an operator-owned channel/target before deciding whether the source chat should see a warning.",
+  "messages.operationalAlerts.enabled":
+    "Enables operational alert routing. When false or unset, runtime warnings continue through the normal user-chat warning path.",
+  "messages.operationalAlerts.target":
+    "Outbound channel id used for operational alerts, for example telegram, discord, slack, or matrix.",
+  "messages.operationalAlerts.to":
+    "Destination id for operational alerts, such as a chat id, channel id, room id, or address understood by the selected channel.",
+  "messages.operationalAlerts.accountId":
+    "Optional channel account id used when the target channel has multiple configured accounts.",
+  "messages.operationalAlerts.sources":
+    "Optional source filter for operational alerts. Omit to allow every source currently supported by the runtime warning bridge.",
+  "messages.operationalAlerts.severities":
+    'Optional severity filter. Supported values are "warn" and "critical". Omit to allow all severities.',
+  "messages.operationalAlerts.kinds":
+    "Optional runtime warning kind allowlist. Omit to allow all supported warning kinds.",
+  "messages.operationalAlerts.disabledKinds":
+    "Runtime warning kinds that should never be routed as operational alerts, even when the broader kind allowlist would include them.",
+  "messages.operationalAlerts.kindPolicies":
+    "Per-kind routing and user-chat policy overrides. Use this when one warning kind should route but still be shown to the user, or should never route.",
+  "messages.operationalAlerts.fallback":
+    'Fallback behavior when the configured operator route is unavailable. "on-route-failure" uses the source chat only after route failure; "always-user-chat" also keeps the user-chat warning.',
+  "messages.operationalAlerts.dedupeWindowMs":
+    "Window for suppressing repeated operational alerts with the same source, kind, severity, and message. Default is 600000ms.",
   "messages.ackReaction": "Emoji reaction used to acknowledge inbound messages (empty disables).",
   "messages.ackReactionScope":
     'When to send ack reactions ("group-mentions", "group-all", "direct", "all", "off", "none"). "off"/"none" disables ack reactions entirely.',

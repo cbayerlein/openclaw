@@ -54,6 +54,7 @@ import { isDiagnosticsEnabled } from "../../infra/diagnostic-events.js";
 import { measureDiagnosticsTimelineSpan } from "../../infra/diagnostics-timeline.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { getSessionBindingService } from "../../infra/outbound/session-binding-service.js";
+import { routeRuntimeWarning } from "../../infra/runtime-warnings.js";
 import { isAbortError } from "../../infra/unhandled-rejections.js";
 import {
   logMessageDispatchCompleted,
@@ -1371,6 +1372,14 @@ export async function dispatchReplyFromConfig(
     return await normalizeReplyMediaPayloadPaths(payload);
   };
 
+  // Outbound session.key must match the session key used by the agent
+  // runtime that produced this payload, so agent_end, message delivery
+  // hooks, and runtime warning routes expose the same canonical key.
+  const agentRuntimeSessionKey =
+    ctx.CommandSource === "native"
+      ? (resolveCommandTurnTargetSessionKey(ctx) ?? ctx.SessionKey)
+      : ctx.SessionKey;
+
   const routeReplyToOriginating = async (
     payload: ReplyPayload,
     options?: { abortSignal?: AbortSignal; mirror?: boolean; kind?: ReplyDispatchKind },
@@ -1379,13 +1388,6 @@ export async function dispatchReplyFromConfig(
       return null;
     }
     markInboundDedupeReplayUnsafe();
-    // Outbound session.key must match the session key used by the agent
-    // runtime that produced this payload, so agent_end and message delivery
-    // hooks expose the same canonical key for native command redirects.
-    const agentRuntimeSessionKey =
-      ctx.CommandSource === "native"
-        ? (resolveCommandTurnTargetSessionKey(ctx) ?? ctx.SessionKey)
-        : ctx.SessionKey;
     return await routeReplyRuntime.routeReply({
       payload,
       channel: routeReplyChannel,
@@ -1412,6 +1414,22 @@ export async function dispatchReplyFromConfig(
   const isRoutedReplyDelivered = (result: { ok: boolean; suppressed?: boolean }) =>
     result.ok && result.suppressed !== true;
 
+  const shouldSuppressRoutedRuntimeWarning = async (payload: ReplyPayload): Promise<boolean> => {
+    const runtimeWarning = getReplyPayloadMetadata(payload)?.runtimeWarning;
+    if (!runtimeWarning) {
+      return false;
+    }
+    const result = await routeRuntimeWarning({
+      cfg,
+      warning: {
+        ...runtimeWarning,
+        sessionKey: runtimeWarning.sessionKey ?? agentRuntimeSessionKey ?? ctx.SessionKey,
+        agentId: runtimeWarning.agentId ?? sessionAgentId,
+      },
+    });
+    return result.suppressUserChat;
+  };
+
   /**
    * Helper to send a payload via route-reply (async).
    * Only used when actually routing to a different provider.
@@ -1431,6 +1449,9 @@ export async function dispatchReplyFromConfig(
     }
     const effectiveAbortSignal = abortSignal ?? getDispatchAbortSignal();
     if (effectiveAbortSignal?.aborted) {
+      return;
+    }
+    if (await shouldSuppressRoutedRuntimeWarning(payload)) {
       return;
     }
     const result = await routeReplyToOriginating(payload, {
@@ -1925,6 +1946,9 @@ export async function dispatchReplyFromConfig(
       throwIfFinalDeliveryAborted();
       const normalizedPayload = await normalizeReplyMediaPayload(ttsPayload);
       throwIfFinalDeliveryAborted();
+      if (await shouldSuppressRoutedRuntimeWarning(normalizedPayload)) {
+        return { queuedFinal: true, routedFinalCount: 0 };
+      }
       const result = await routeReplyToOriginating(normalizedPayload, {
         abortSignal,
         kind: "final",
@@ -2624,6 +2648,9 @@ export async function dispatchReplyFromConfig(
                 });
                 const normalizedPayload = await normalizeReplyMediaPayload(ttsPayload);
                 if (isDispatchOperationAborted()) {
+                  return;
+                }
+                if (await shouldSuppressRoutedRuntimeWarning(normalizedPayload)) {
                   return;
                 }
                 if (shouldRouteToOriginating) {

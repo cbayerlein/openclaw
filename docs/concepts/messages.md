@@ -89,6 +89,33 @@ OpenClaw keeps that boundary explicit:
 - Plugins and tools should put text the model must read in `content`, not only
   in `details`.
 
+## Operational alerts
+
+Runtime warnings can be routed away from the source chat with
+`messages.operationalAlerts`. This is intended for operator-owned destinations
+where tool failures and recoverable runtime warnings should be visible without
+interrupting the user conversation.
+
+```json5
+{
+  messages: {
+    operationalAlerts: {
+      enabled: true,
+      target: "telegram",
+      to: "123456789",
+      severities: ["warn", "critical"],
+      kinds: ["tool_exec_failure", "tool_recoverable_warning"],
+      fallback: "on-route-failure",
+    },
+  },
+}
+```
+
+When an alert is delivered or delivered through fallback, the matching user-chat
+warning can stay suppressed according to the alert kind policy. Leave
+`messages.suppressToolErrors` for the older all-or-nothing behavior when no
+separate operator route is configured.
+
 ## Inbound bodies and history context
 
 OpenClaw separates the **prompt body** from the **command body**:

@@ -28,6 +28,7 @@ Docs: https://docs.openclaw.ai
 - Plugins: externalize GitHub Copilot and Tokenjuice as official install-on-demand plugins with npm and ClawHub publish metadata.
 - Workboard: add agent coordination tools for tracking and handing off active agent work.
 - Agents: add fresh-session and persisted model controls for `openclaw agent`.
+- Messages: add operator-routed runtime warning alerts for tool failures.
 - Discord: show commentary in progress drafts so live Discord runs expose useful in-progress context. (#85200)
 - Plugin SDK: add a reply payload sending hook for plugins that need to deliver channel-owned replies and flatten package types for SDK declarations. (#82823, #87165) Thanks @RomneyDa.
 - Policy: add policy comparison, ingress-channel conformance, and sandbox-posture conformance checks. (#85572, #85744, #86768)

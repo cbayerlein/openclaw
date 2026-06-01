@@ -1,3 +1,4 @@
+import type { RuntimeWarning } from "../infra/runtime-warnings.js";
 import type {
   InteractiveReply,
   MessagePresentation,
@@ -169,6 +170,8 @@ export type ReplyPayloadMetadata = {
   beforeAgentRunBlocked?: boolean;
   /** Warning synthesized from an observed tool error after the run produced assistant output. */
   nonTerminalToolErrorWarning?: boolean;
+  /** Runtime warning that may be routed to an operator alert destination. */
+  runtimeWarning?: RuntimeWarning;
 };
 
 const replyPayloadMetadata = new WeakMap<object, ReplyPayloadMetadata>();

@@ -14,6 +14,7 @@ import type { ReasoningLevel, ThinkLevel, VerboseLevel } from "../../../auto-rep
 import { isSilentReplyPayloadText, SILENT_REPLY_TOKEN } from "../../../auto-reply/tokens.js";
 import { formatToolAggregate } from "../../../auto-reply/tool-meta.js";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
+import type { RuntimeWarning } from "../../../infra/runtime-warnings.js";
 import { hasReplyPayloadContent } from "../../../interactive/payload.js";
 import type { AssistantMessage } from "../../../llm/types.js";
 import { isCronSessionKey } from "../../../routing/session-key.js";
@@ -232,6 +233,7 @@ export function buildEmbeddedRunPayloads(params: {
     media?: string[];
     mediaUrl?: string;
     isError?: boolean;
+    runtimeWarning?: RuntimeWarning;
     isReasoning?: boolean;
     audioAsVoice?: boolean;
     replyToId?: string;
@@ -526,9 +528,28 @@ export function buildEmbeddedRunPayloads(params: {
           })
         : false;
       if (!duplicateWarning) {
+        const kind = isExecLikeToolName(params.lastToolError.toolName)
+          ? "tool_exec_failure"
+          : isRecoverableToolError(params.lastToolError.error)
+            ? "tool_recoverable_warning"
+            : "tool_failure";
         replyItems.push({
           text: warningText,
           isError: true,
+          runtimeWarning: {
+            kind,
+            source: "tool",
+            severity: kind === "tool_recoverable_warning" ? "warn" : "critical",
+            text: warningText,
+            fingerprint: [
+              kind,
+              params.lastToolError.toolName,
+              params.lastToolError.error ?? "",
+            ].join("|"),
+            sessionKey: params.sessionKey,
+            agentId: params.agentId,
+            toolName: params.lastToolError.toolName,
+          },
           nonTerminalToolErrorWarning:
             hasUserFacingAssistantReply &&
             shouldMarkNonTerminalToolErrorWarning(params.lastToolError),
@@ -556,6 +577,11 @@ export function buildEmbeddedRunPayloads(params: {
       if (item.nonTerminalToolErrorWarning) {
         setReplyPayloadMetadata(payload, {
           nonTerminalToolErrorWarning: true,
+        });
+      }
+      if (item.runtimeWarning) {
+        setReplyPayloadMetadata(payload, {
+          runtimeWarning: item.runtimeWarning,
         });
       }
       if (item.replyToId) {

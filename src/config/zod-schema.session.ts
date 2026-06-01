@@ -199,6 +199,76 @@ export const MessagesSchema = z
       .strict()
       .optional(),
     suppressToolErrors: z.boolean().optional(),
+    operationalAlerts: z
+      .object({
+        enabled: z.boolean().optional(),
+        target: z.string().optional(),
+        to: z.string().optional(),
+        accountId: z.string().optional(),
+        sources: z
+          .array(
+            z.enum([
+              "tool",
+              "agent",
+              "provider",
+              "heartbeat",
+              "cron",
+              "delivery",
+              "channel",
+              "guardrail",
+            ]),
+          )
+          .optional(),
+        severities: z.array(z.enum(["warn", "critical"])).optional(),
+        kinds: z
+          .array(
+            z.enum([
+              "tool_failure",
+              "tool_exec_failure",
+              "tool_recoverable_warning",
+              "session_delivery_failure",
+              "provider_failure",
+              "agent_run_failure",
+              "heartbeat_failure",
+              "cron_failure",
+              "cron_runtime_failure",
+              "reply_delivery_failure",
+              "channel_warning",
+              "guardrail_warning",
+            ]),
+          )
+          .optional(),
+        kindPolicies: z
+          .record(
+            z.enum([
+              "tool_failure",
+              "tool_exec_failure",
+              "tool_recoverable_warning",
+              "session_delivery_failure",
+              "provider_failure",
+              "agent_run_failure",
+              "heartbeat_failure",
+              "cron_failure",
+              "cron_runtime_failure",
+              "reply_delivery_failure",
+              "channel_warning",
+              "guardrail_warning",
+            ]),
+            z
+              .object({
+                enabled: z.boolean().optional(),
+                userChat: z.enum(["default", "always", "never"]).optional(),
+                warningsRoute: z.boolean().optional(),
+                severities: z.array(z.enum(["warn", "critical"])).optional(),
+              })
+              .strict(),
+          )
+          .optional(),
+        fallback: z.enum(["none", "on-route-failure", "always-user-chat"]).optional(),
+        dedupeWindowMs: z.number().int().min(0).optional(),
+      })
+      .strict()
+      .optional(),
     tts: TtsConfigSchema,
   })
   .strict()
