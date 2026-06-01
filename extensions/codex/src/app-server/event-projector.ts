@@ -479,10 +479,19 @@ export class CodexAppServerEventProjector {
       index: groupIndex,
       text: `${current?.text ?? ""}${delta}`,
     });
+    const text = collectReasoningTextValues(
+      this.reasoningTextByGroup,
+      this.reasoningItemOrder,
+    ).join("\n\n");
+    this.emitAgentEvent({
+      stream: "thinking",
+      data: {
+        text,
+        delta,
+      },
+    });
     await this.params.onReasoningStream?.({
-      text: collectReasoningTextValues(this.reasoningTextByGroup, this.reasoningItemOrder).join(
-        "\n\n",
-      ),
+      text,
       isReasoningSnapshot: true,
     });
   }
@@ -582,6 +591,9 @@ export class CodexAppServerEventProjector {
     if (item?.type === "plan" && typeof item.text === "string" && item.text) {
       this.planTextByItem.set(item.id, item.text);
       this.emitPlanUpdate({ explanation: undefined, steps: splitPlanText(item.text) });
+    }
+    if (item?.type === "reasoning") {
+      await this.recordCompletedReasoningItem(item);
     }
     if (item?.type === "contextCompaction" && itemId) {
       this.activeCompactionItemIds.delete(itemId);
@@ -718,6 +730,9 @@ export class CodexAppServerEventProjector {
         this.planTextByItem.set(item.id, item.text);
         this.emitPlanUpdate({ explanation: undefined, steps: splitPlanText(item.text) });
       }
+      if (item.type === "reasoning") {
+        await this.recordCompletedReasoningItem(item);
+      }
       this.recordToolMeta(item);
       this.emitSnapshotOnlyNativeToolProgress(item);
       this.recordNativeToolTranscriptCall(item);
@@ -853,6 +868,28 @@ export class CodexAppServerEventProjector {
       }
     }
     return mediaUrls.size > 0 ? [...mediaUrls] : toolTelemetry.toolMediaUrls;
+  }
+
+  private async recordCompletedReasoningItem(item: CodexThreadItem): Promise<void> {
+    const text = collectReasoningItemText(item);
+    if (!text) {
+      return;
+    }
+    const previous = this.reasoningTextByItem.get(item.id) ?? "";
+    if (previous.trim() === text.trim()) {
+      return;
+    }
+    this.reasoningStarted = true;
+    this.reasoningTextByItem.set(item.id, text);
+    const delta = previous && text.startsWith(previous) ? text.slice(previous.length) : text;
+    this.emitAgentEvent({
+      stream: "thinking",
+      data: {
+        text,
+        ...(delta ? { delta } : {}),
+      },
+    });
+    await this.params.onReasoningStream?.({ text });
   }
 
   private async maybeEndReasoning(): Promise<void> {
@@ -1750,6 +1787,39 @@ function collectReasoningTextValues(
 
 function reasoningMethodOrder(method: ReasoningDeltaMethod): number {
   return method === "item/reasoning/summaryTextDelta" ? 0 : 1;
+}
+
+function collectReasoningItemText(item: CodexThreadItem): string | undefined {
+  if (item.type !== "reasoning") {
+    return undefined;
+  }
+  const record = item as unknown as Record<string, unknown>;
+  const parts = [
+    ...collectReasoningParts(record.summary),
+    ...collectReasoningParts(record.content),
+  ];
+  return parts.join("\n\n").trim() || undefined;
+}
+
+function collectReasoningParts(value: unknown): string[] {
+  if (typeof value === "string") {
+    const text = value.trim();
+    return text ? [text] : [];
+  }
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => {
+    if (typeof entry === "string") {
+      const text = entry.trim();
+      return text ? [text] : [];
+    }
+    if (!isJsonObject(entry)) {
+      return [];
+    }
+    const text = readString(entry, "text") ?? readString(entry, "summary");
+    return text ? [text] : [];
+  });
 }
 
 function extractRawAssistantText(item: JsonObject): string | undefined {

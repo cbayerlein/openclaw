@@ -894,6 +894,28 @@ describe("subscribeEmbeddedAgentSession", () => {
     emitAgentEventSpy.mockRestore();
   });
 
+  it("emits message_end thinking content for streamed reasoning", () => {
+    const onReasoningStream = vi.fn();
+
+    const { emit } = createSubscribedHarness({
+      runId: "run",
+      reasoningMode: "stream",
+      onReasoningStream,
+    });
+
+    emit({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{ type: "thinking", thinking: "Checking files before answering" }],
+      },
+    });
+
+    expect(onReasoningStream.mock.calls.at(-1)?.[0]).toMatchObject({
+      text: "Checking files before answering",
+    });
+  });
+
   it("emits reasoning end once when native and tagged reasoning end overlap", () => {
     const onReasoningEnd = vi.fn();
 

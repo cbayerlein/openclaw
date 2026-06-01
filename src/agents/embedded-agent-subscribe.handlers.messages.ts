@@ -488,12 +488,6 @@ export function handleMessageUpdate(
   }
 
   ctx.noteLastAssistant(msg);
-  const suppressVisibleAssistantOutput = shouldSuppressAssistantVisibleOutput(msg);
-  if (suppressVisibleAssistantOutput) {
-    return;
-  }
-  const suppressDeterministicApprovalOutput = shouldSuppressDeterministicApprovalOutput(ctx.state);
-
   const assistantEvent = evt.assistantMessageEvent;
   const assistantPhase = resolveAssistantMessagePhase(msg);
   const assistantRecord =
@@ -538,6 +532,12 @@ export function handleMessageUpdate(
     }
     return;
   }
+
+  const suppressVisibleAssistantOutput = shouldSuppressAssistantVisibleOutput(msg);
+  if (suppressVisibleAssistantOutput) {
+    return;
+  }
+  const suppressDeterministicApprovalOutput = shouldSuppressDeterministicApprovalOutput(ctx.state);
 
   if (evtType !== "text_delta" && evtType !== "text_start" && evtType !== "text_end") {
     return;
@@ -777,10 +777,20 @@ export function handleMessageEnd(
   ctx.noteLastAssistant(assistantMessage);
   ctx.recordAssistantUsage((assistantMessage as { usage?: unknown }).usage);
   ctx.commitAssistantUsage();
+  promoteThinkingTagsToBlocks(assistantMessage);
   if (suppressVisibleAssistantOutput) {
+    const rawThinking =
+      ctx.state.includeReasoning || ctx.state.streamReasoning
+        ? extractAssistantThinking(assistantMessage) ||
+          extractThinkingFromTaggedText(
+            coerceChatContentText(extractAssistantText(assistantMessage)),
+          )
+        : "";
+    if (!ctx.params.silentExpected && ctx.state.streamReasoning && rawThinking) {
+      ctx.emitReasoningStream(rawThinking);
+    }
     return;
   }
-  promoteThinkingTagsToBlocks(assistantMessage);
 
   const rawText = coerceChatContentText(extractAssistantText(assistantMessage));
   const rawVisibleText = coerceChatContentText(extractAssistantVisibleText(assistantMessage));
