@@ -49,6 +49,10 @@ export type RunActivitySummary = {
   runId: string;
   sessionKey?: string;
   agentId?: string;
+  runRole?: "conversation" | "technical" | "child";
+  parentRunId?: string;
+  displayKind?: string;
+  visibleInChat?: boolean;
   status: RunActivityStatus;
   startedAt?: number;
   endedAt?: number;
@@ -83,6 +87,48 @@ let lastPruneAtMs = 0;
 
 function normalizeRunId(runId: string): string {
   return encodeURIComponent(runId.trim());
+}
+
+function inferRunDisplayKind(runId: string): string {
+  if (runId.includes("image_generate")) {
+    return "image_generation";
+  }
+  if (runId.includes(":subagent:")) {
+    return "subagent";
+  }
+  if (runId.startsWith("announce:v1:")) {
+    return "announcement";
+  }
+  return "run";
+}
+
+function looksConversationAnnouncementRunId(runId: string): boolean {
+  return (
+    runId.startsWith("announce:v1:") &&
+    !runId.includes(":image_generate:") &&
+    /:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(runId)
+  );
+}
+
+function classifyRunSummary(summary: RunActivitySummary): RunActivitySummary {
+  const displayKind = summary.displayKind ?? inferRunDisplayKind(summary.runId);
+  const isImageGeneration =
+    summary.runId.startsWith("image_generate:") || summary.runId.includes(":image_generate:");
+  const visibleInChat =
+    summary.visibleInChat ??
+    (looksConversationAnnouncementRunId(summary.runId) ||
+      (!isImageGeneration && summary.runRole === "conversation"));
+  const runRole: RunActivitySummary["runRole"] = visibleInChat
+    ? "conversation"
+    : isImageGeneration || summary.parentRunId || summary.runId.includes(":subagent:")
+      ? "child"
+      : (summary.runRole ?? "technical");
+  return {
+    ...summary,
+    runRole,
+    displayKind,
+    visibleInChat: runRole === "conversation",
+  };
 }
 
 function resolveRootDir(): string {
@@ -761,7 +807,7 @@ export async function listRunActivitySummaries(params: {
   }
   const page = items.slice(0, limit);
   return {
-    items: page,
+    items: page.map(classifyRunSummary),
     hasMore: items.length > page.length,
     ...(items.length > page.length && page.length > 0
       ? { nextCursor: encodeCursor(page.at(-1)!) }
@@ -773,10 +819,10 @@ export async function getRunActivitySummary(runId: string): Promise<RunActivityS
   if (!runId.trim()) {
     return null;
   }
-  return (
+  const summary =
     (await readJsonFile<RunActivitySummary>(resolveSummaryPath(runId))) ??
-    (await readJsonFile<RunActivitySummary>(resolveLegacySummaryPath(runId)))
-  );
+    (await readJsonFile<RunActivitySummary>(resolveLegacySummaryPath(runId)));
+  return summary ? classifyRunSummary(summary) : null;
 }
 
 async function maybePruneStore(): Promise<void> {
